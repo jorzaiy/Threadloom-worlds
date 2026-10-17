@@ -23,7 +23,9 @@ _MAX_RETRIES = 3
 _BACKOFF_BASE = 2.0
 
 
-def _request_timeout() -> int:
+def _request_timeout(override: float | None = None) -> float:
+    if isinstance(override, (int, float)) and override > 0:
+        return float(override)
     try:
         return max(5, int(os.environ.get('THREADLOOM_MODEL_TIMEOUT', '45') or 45))
     except Exception:
@@ -63,12 +65,12 @@ def _build_http_error(url: str, status: int, reason: str, headers, body: bytes) 
 
 
 @_retry_on_rate_limit
-def _post_json(url: str, payload: dict, headers: dict) -> dict:
+def _post_json(url: str, payload: dict, headers: dict, timeout: float | None = None) -> dict:
     body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
     req_headers = dict(headers)
     req_headers.setdefault('Content-Length', str(len(body)))
     try:
-        conn, path = open_safe_connection(url, timeout=_request_timeout())
+        conn, path = open_safe_connection(url, timeout=_request_timeout(timeout))
     except UnsafeTargetError as err:
         raise ValueError(f'model endpoint is not allowed: {err}') from err
     try:
@@ -258,6 +260,10 @@ def call_model(config: dict, system_prompt: str, user_prompt: str) -> tuple[str,
     base_url = provider['baseUrl'].rstrip('/')
     api_key = provider.get('apiKey', '')
     api_kind = provider.get('api') or model.get('api') or 'openai-completions'
+    # Optional per-role timeout (e.g. long Nemotron Ultra world-bible calls);
+    # falls back to THREADLOOM_MODEL_TIMEOUT when absent.
+    timeout = config.get('timeout_seconds')
+    post_kwargs = {'timeout': timeout} if timeout else {}
 
     headers = {
         'Content-Type': 'application/json',
@@ -278,6 +284,7 @@ def call_model(config: dict, system_prompt: str, user_prompt: str) -> tuple[str,
                 'max_output_tokens': config['max_output_tokens'],
             },
             headers,
+            **post_kwargs,
         )
         reply = _extract_responses_text(data)
         usage = data.get('usage', {})
@@ -321,7 +328,7 @@ def call_model(config: dict, system_prompt: str, user_prompt: str) -> tuple[str,
             choice = (data.get('choices') or [{}])[0]
             finish_reason = choice.get('finish_reason')
     else:
-        data = _post_json(f'{base_url}/chat/completions', payload, headers)
+        data = _post_json(f'{base_url}/chat/completions', payload, headers, **post_kwargs)
         reply = _extract_chat_content(data)
         usage = data.get('usage', {})
         choice = (data.get('choices') or [{}])[0]

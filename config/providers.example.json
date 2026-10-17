@@ -36,6 +36,58 @@
           "api": "openai-completions"
         }
       ]
+    },
+    "nebius-token-factory": {
+      "baseUrl": "https://api.tokenfactory.nebius.com/v1/",
+      "apiKey": "env:NEBIUS_API_KEY",
+      "api": "openai-completions",
+      "models": [
+        {
+          "id": "nvidia/Nemotron-3-Ultra-550b-a55b",
+          "name": "Nemotron 3 Ultra 550B-A55B",
+          "reasoning": true,
+          "input": ["text"],
+          "cost": {
+            "input": 1,
+            "output": 3,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 1048576,
+          "maxTokens": 32768,
+          "api": "openai-completions"
+        },
+        {
+          "id": "nvidia/nemotron-3-super-120b-a12b",
+          "name": "Nemotron 3 Super 120B-A12B",
+          "reasoning": true,
+          "input": ["text"],
+          "cost": {
+            "input": 0.3,
+            "output": 0.9,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 262144,
+          "maxTokens": 32768,
+          "api": "openai-completions"
+        },
+        {
+          "id": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+          "name": "Nemotron 3 Nano 30B-A3B",
+          "reasoning": true,
+          "input": ["text"],
+          "cost": {
+            "input": 0.06,
+            "output": 0.24,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 262144,
+          "maxTokens": 32768,
+          "api": "openai-completions"
+        }
+      ]
     }
   }
 }

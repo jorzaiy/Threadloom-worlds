@@ -64,6 +64,60 @@ DEFAULT_ADVANCED_MODELS = {
     },
 }
 MODEL_CONFIG_LOCK = threading.RLock()
+
+# ---------------------------------------------------------------------------
+# Nebius Token Factory (OpenAI-compatible) — system provider for NVIDIA Nemotron
+# ---------------------------------------------------------------------------
+# Unlike the per-site provider (which the admin configures in the UI), this is
+# an operator-level provider: base URL and model list come from
+# config/providers.json (``providers['nebius-token-factory']``) when present,
+# otherwise from the built-in default below. The API key is ALWAYS read from
+# the server environment (``NEBIUS_API_KEY``); it is never stored in JSON,
+# never shown in snapshots, and ordinary users cannot change the base URL, so
+# resolving the env key for them does not open a key-exfiltration path.
+NEBIUS_PROVIDER_NAME = 'nebius-token-factory'
+NEBIUS_API_KEY_ENV = 'NEBIUS_API_KEY'
+NEBIUS_BASE_URL_ENV = 'NEBIUS_BASE_URL'
+NEBIUS_DEFAULT_BASE_URL = 'https://api.tokenfactory.nebius.com/v1/'
+# Model IDs verified against the official catalog
+# https://tokenfactory.nebius.com/model-catalog.md (2026-10-17). Not yet
+# verified with a live GET /v1/models call (no key available at the time).
+NEMOTRON_ULTRA_MODEL = 'nvidia/Nemotron-3-Ultra-550b-a55b'
+NEMOTRON_SUPER_MODEL = 'nvidia/nemotron-3-super-120b-a12b'
+NEMOTRON_NANO_MODEL = 'nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B'
+NEBIUS_TOKEN_FACTORY_DEFAULT = {
+    'baseUrl': NEBIUS_DEFAULT_BASE_URL,
+    'apiKey': f'env:{NEBIUS_API_KEY_ENV}',
+    'api': 'openai-completions',
+    'models': [
+        {'id': NEMOTRON_ULTRA_MODEL, 'name': 'Nemotron 3 Ultra 550B-A55B', 'reasoning': True, 'input': ['text']},
+        {'id': NEMOTRON_SUPER_MODEL, 'name': 'Nemotron 3 Super 120B-A12B', 'reasoning': True, 'input': ['text']},
+        {'id': NEMOTRON_NANO_MODEL, 'name': 'Nemotron 3 Nano 30B-A3B', 'reasoning': True, 'input': ['text']},
+    ],
+}
+# Roles that always run on Token Factory (hackathon requirement: NVIDIA open
+# models served by Nebius). Advanced-model overrides in the user store may
+# tune temperature / tokens / model but not the provider.
+NEBIUS_ROLE_MODEL_DEFAULTS = {
+    'world_builder': {
+        'provider': NEBIUS_PROVIDER_NAME,
+        'model': NEMOTRON_ULTRA_MODEL,
+        'temperature': 0.4,
+        'max_output_tokens': 8000,
+        'stream': False,
+        'response_format': {'type': 'json_object'},
+        'timeout_seconds': 240,
+    },
+    'world_check': {
+        'provider': NEBIUS_PROVIDER_NAME,
+        'model': NEMOTRON_NANO_MODEL,
+        'temperature': 0.1,
+        'max_output_tokens': 1200,
+        'stream': False,
+        'response_format': {'type': 'json_object'},
+        'timeout_seconds': 45,
+    },
+}
 STATE_KEEPER_CANDIDATE_DEFAULT = {
     'provider': SITE_PROVIDER_NAME,
     'model': '',
@@ -96,6 +150,14 @@ SYSTEM_ROLE_DEFAULTS = {
     'state_keeper_candidate': {
         'provider': 'llm',
         'model_role': 'summarizer',
+    },
+    'world_builder': {
+        'provider': 'llm',
+        'model_role': 'world_builder',
+    },
+    'world_check': {
+        'provider': 'llm',
+        'model_role': 'world_check',
     },
 }
 SYSTEM_MODEL_DEFAULTS = {
@@ -772,12 +834,53 @@ def load_runtime_config() -> dict:
             **copy.deepcopy(DEFAULT_ADVANCED_MODELS[role_name]),
             **copy.deepcopy(advanced.get(role_name, {})),
         }
+    for role_name, role_defaults in NEBIUS_ROLE_MODEL_DEFAULTS.items():
+        override = advanced.get(role_name, {}) if isinstance(advanced.get(role_name), dict) else {}
+        models[role_name] = {
+            **copy.deepcopy(role_defaults),
+            **copy.deepcopy(override),
+            'provider': NEBIUS_PROVIDER_NAME,
+        }
     sources = global_cfg.get('sources', {}) if isinstance(global_cfg.get('sources'), dict) else {}
     sources['active_preset'] = str(user_store.get('active_preset', '') or sources.get('active_preset') or DEFAULT_ACTIVE_PRESET)
     global_cfg['sources'] = sources
     global_cfg['models'] = models
     global_cfg['roles'] = copy.deepcopy(SYSTEM_ROLE_DEFAULTS)
     return global_cfg
+
+
+def load_nebius_provider() -> dict:
+    """Return the Nebius Token Factory provider definition (key unresolved).
+
+    Precedence for the base URL: ``NEBIUS_BASE_URL`` env > providers.json entry
+    > built-in default. The model list comes from providers.json when it
+    defines one, else the built-in Nemotron entries. ``apiKey`` is always the
+    env reference, regardless of what providers.json says.
+    """
+    store = _global_provider_store()
+    providers = store.get('providers', {}) if isinstance(store.get('providers'), dict) else {}
+    configured = providers.get(NEBIUS_PROVIDER_NAME, {})
+    configured = configured if isinstance(configured, dict) else {}
+    api_type = str(configured.get('api', '') or NEBIUS_TOKEN_FACTORY_DEFAULT['api']).strip()
+    if api_type not in SUPPORTED_PROVIDER_API_VALUES:
+        api_type = NEBIUS_TOKEN_FACTORY_DEFAULT['api']
+    base_url = (
+        str(os.environ.get(NEBIUS_BASE_URL_ENV, '') or '').strip()
+        or str(configured.get('baseUrl', '') or '').strip()
+        or NEBIUS_DEFAULT_BASE_URL
+    )
+    models = _normalize_models(configured.get('models') or NEBIUS_TOKEN_FACTORY_DEFAULT['models'], api_type)
+    return {
+        'baseUrl': base_url,
+        'apiKey': f'env:{NEBIUS_API_KEY_ENV}',
+        'api': api_type,
+        'models': models,
+        'system': True,
+    }
+
+
+def nebius_api_key_configured() -> bool:
+    return bool(str(os.environ.get(NEBIUS_API_KEY_ENV, '') or '').strip())
 
 
 def load_openclaw_models() -> dict:
@@ -788,7 +891,7 @@ def load_openclaw_models() -> dict:
         'api': site.get('api', 'openai-completions'),
         'models': _normalize_models(site.get('models', []), site.get('api', 'openai-completions')),
     }
-    return {'providers': {SITE_PROVIDER_NAME: provider}}
+    return {'providers': {SITE_PROVIDER_NAME: provider, NEBIUS_PROVIDER_NAME: load_nebius_provider()}}
 
 
 def resolve_source(path_str: str) -> Path:
@@ -827,7 +930,14 @@ def resolve_provider_model(role: str = 'narrator') -> dict:
         raise RuntimeError(f'No model configured for role {role}')
     resolved_provider = dict(provider)
     resolved_provider['baseUrl'] = _validate_remote_base_url(resolved_provider.get('baseUrl', ''))
-    resolved_provider['apiKey'] = _resolve_api_key(resolved_provider.get('apiKey', ''))
+    if provider_name == NEBIUS_PROVIDER_NAME:
+        # Operator-level key: resolved from the server env for every user.
+        resolved_provider['apiKey'] = str(os.environ.get(NEBIUS_API_KEY_ENV, '') or '').strip()
+        if not resolved_provider['apiKey']:
+            raise RuntimeError(f'{NEBIUS_API_KEY_ENV} is not set; Nebius Token Factory role {role} is unavailable')
+    else:
+        resolved_provider['apiKey'] = _resolve_api_key(resolved_provider.get('apiKey', ''))
+    resolved_provider.pop('system', None)
     max_output_tokens = role_cfg.get('max_output_tokens', NARRATOR_MIN_OUTPUT_TOKENS if role == 'narrator' else 1200)
     override_max_tokens = str(os.environ.get(override_max_tokens_env, '') or '').strip()
     if override_max_tokens:
@@ -845,7 +955,7 @@ def resolve_provider_model(role: str = 'narrator') -> dict:
         stream = False
     elif override_stream in {'1', 'true', 'yes'}:
         stream = True
-    return {
+    resolved = {
         'provider_name': provider_name,
         'provider': resolved_provider,
         'model': model,
@@ -855,6 +965,10 @@ def resolve_provider_model(role: str = 'narrator') -> dict:
         'response_format': copy.deepcopy(role_cfg.get('response_format')) if isinstance(role_cfg.get('response_format'), dict) else None,
         'is_local': False,
     }
+    timeout_seconds = role_cfg.get('timeout_seconds')
+    if isinstance(timeout_seconds, (int, float)) and timeout_seconds > 0:
+        resolved['timeout_seconds'] = int(timeout_seconds)
+    return resolved
 
 
 # Compatibility wrappers for older callers/routes.
