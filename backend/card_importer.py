@@ -43,6 +43,7 @@ try:
         system_npcs_path,
     )
     from .lorebook_distiller import rebuild_lorebook_distillation
+    from .world_builder import safe_rebuild_world_bible
 except ImportError:
     from atomic_io import atomic_write_bytes, atomic_write_json, atomic_write_text
     from card_hints import invalidate_card_hints_cache
@@ -60,6 +61,7 @@ except ImportError:
         system_npcs_path,
     )
     from lorebook_distiller import rebuild_lorebook_distillation
+    from world_builder import safe_rebuild_world_bible
 
 logger = logging.getLogger(__name__)
 
@@ -1640,6 +1642,9 @@ def import_card_bundle(card_json: dict, *, png_data: bytes | None = None) -> dic
     _write_json(openings_path(), openings)
     _write_json(system_npcs_path(), system_npcs)
     distill_report = rebuild_lorebook_distillation(character_source_base())
+    # Re-importing the same card reuses a cached/locked bible; a different card
+    # rebuilds. Never raises: LLM/Tavily failures degrade to a card-only bible.
+    world_bible_report = safe_rebuild_world_bible(character_source_base())
     _write_runtime_baselines(core, lorebook, system_npcs)
 
     invalidate_card_hints_cache()
@@ -1655,6 +1660,7 @@ def import_card_bundle(card_json: dict, *, png_data: bytes | None = None) -> dic
         'raw_card_path': backups.get('raw_card_path', ''),
         'import_manifest_path': str(import_manifest_path()),
         'lorebook_distillation': distill_report,
+        'world_bible': world_bible_report,
     }
 
 
