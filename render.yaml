@@ -1,0 +1,19 @@
+# Render Blueprint: Threadloom Worlds demo (free tier, Docker).
+# Free instances sleep after ~15 min idle and have no persistent disk:
+# each wake re-seeds the demo card (one Nemotron Ultra world-bible build).
+services:
+  - type: web
+    name: threadloom-worlds
+    runtime: docker
+    plan: free
+    branch: feat/world-builder
+    dockerfilePath: ./deploy/huggingface/Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: THREADLOOM_HOST
+        value: 0.0.0.0
+      - key: NEBIUS_API_KEY
+        sync: false
+      - key: THREADLOOM_ADMIN_PASSWORD
+        sync: false

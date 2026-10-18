@@ -61,11 +61,30 @@ def seed_card() -> None:
     print(f"[seed] imported demo card; world bible: {json.dumps(result.get('world_bible', {}), ensure_ascii=False)[:300]}")
 
 
+def seed_auth() -> None:
+    """On a public host, turn on multi-user auth with the admin password from env."""
+    pwd = os.environ.get('THREADLOOM_ADMIN_PASSWORD', '')
+    if not pwd:
+        print('[seed] THREADLOOM_ADMIN_PASSWORD not set; leaving auth as is')
+        return
+    from user_manager import admin_has_password, is_multi_user_enabled, set_admin_password, set_multi_user_enabled
+    if not admin_has_password():
+        set_admin_password(pwd)
+        print('[seed] admin password set for default-user')
+    if not is_multi_user_enabled():
+        set_multi_user_enabled(True)
+        print('[seed] multi-user auth enabled')
+
+
 def main() -> int:
     if not os.environ.get(mc.NEBIUS_API_KEY_ENV):
         print('[seed] WARNING: NEBIUS_API_KEY is not set; Nemotron calls will fail until it is.')
     seed_site()
     seed_models()
+    try:
+        seed_auth()
+    except Exception as err:
+        print(f'[seed] auth bootstrap failed: {type(err).__name__}: {err}')
     try:
         seed_card()
     except Exception as err:  # never block server start
