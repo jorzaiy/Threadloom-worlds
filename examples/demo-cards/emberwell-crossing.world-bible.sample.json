@@ -1,0 +1,262 @@
+{
+  "version": 1,
+  "generated_at": "2026-10-18T09:33:32+00:00",
+  "character_name": "Emberwell Crossing",
+  "source_hash": "fd8fe47335b5f44bd065117c09331866",
+  "locked": false,
+  "setting_type": "fantasy",
+  "models": {
+    "inferred": "nvidia/Nemotron-3-Ultra-550b-a55b"
+  },
+  "llm_usage": {
+    "input_tokens": 1050,
+    "output_tokens": 2213,
+    "reasoning_tokens": 935,
+    "duration_ms": 8482
+  },
+  "status": {
+    "tavily": "skipped:no_key",
+    "llm": "ok"
+  },
+  "sections": {
+    "geography": [
+      {
+        "id": "card-1078ccf3f4",
+        "title": "Geography: the Greywater ford",
+        "text": "The Greywater River is crossable only at Emberwell's ford, and only when the water is low. A rope ferry runs when the ford floods, at two silver bits per head. North of the river lie the Silver Hills and their mining camps; south lies the old King's Road back to Vael.",
+        "source": "card",
+        "source_entry_ids": [
+          "1"
+        ]
+      },
+      {
+        "id": "inf-808194b756",
+        "title": "Town layout",
+        "text": "Emberwell clusters on the south bank around the Lantern & Ford; the Crown Assay Office sits on a raised stone platform at the ford's edge, its scales under a tin roof. The Ferrymen's Brotherhood keeps a shed and winch on the north landing, reachable only by the rope ferry.",
+        "source": "inferred"
+      },
+      {
+        "id": "inf-8d23f0dfdd",
+        "title": "Silver Hills camps",
+        "text": "Mining camps cling to the hills' lower slopes, three days' mule-trek north; they are tent cities of canvas and pit-props, each claim marked by a cairn of white quartz.",
+        "source": "inferred"
+      },
+      {
+        "id": "inf-b398c29f49",
+        "title": "King's Road condition",
+        "text": "The old King's Road south is a rutted track that turns to axle-deep mud after rain; ox-carts take three weeks to Vael in summer, five once the ground freezes.",
+        "source": "inferred"
+      }
+    ],
+    "factions": [
+      {
+        "id": "card-89a624c4a2",
+        "title": "Faction: the Crown Assay Office",
+        "text": "The Crown Assay Office weighs and taxes every ounce of silver brought down from the hills. Its clerks hold the only legal scales in town, and smuggling unassayed silver is punished by branding and forfeiture.",
+        "source": "card",
+        "source_entry_ids": [
+          "2"
+        ]
+      },
+      {
+        "id": "card-16b84546bd",
+        "title": "Faction: the Ferrymen's Brotherhood",
+        "text": "The Ferrymen's Brotherhood controls the rope ferry and the river landings. They resent the Assay Office and quietly move goods across at night for anyone who pays.",
+        "source": "card",
+        "source_entry_ids": [
+          "3"
+        ]
+      },
+      {
+        "id": "inf-dce9c32403",
+        "title": "Prospector gangs",
+        "text": "Loose crews of four to twelve men pool resources to work a claim; they share a hedge-witch if they can afford one, and settle internal disputes with knives rather than clerks.",
+        "source": "inferred"
+      },
+      {
+        "id": "inf-294a974543",
+        "title": "Chit-brokers",
+        "text": "Mara Quell and two Assay clerks quietly buy promissory chits at sixty percent face value, then redeem them at the Office for full silver, effectively owning the debts of half the town.",
+        "source": "inferred"
+      }
+    ],
+    "social_system": [
+      {
+        "id": "inf-846f3b9951",
+        "title": "Law and punishment",
+        "text": "The Assay Office clerks act as magistrates; theft or claim-jumping earns a hot-iron brand on the cheek and exile across the ford with a week's rations. Murder is settled by the victim's kin: blood-price in silver or a life for a life.",
+        "source": "inferred"
+      },
+      {
+        "id": "inf-572636164f",
+        "title": "Debt indenture",
+        "text": "A prospector who cannot pay his chits signs a labor warrant; the broker assigns him to a claim gang or the ferry winch until the debt plus twenty percent is worked off.",
+        "source": "inferred"
+      },
+      {
+        "id": "inf-11e8ceb4aa",
+        "title": "Winter compact",
+        "text": "Before the first hard freeze, every household must show a cord of firewood, a sack of salt pork, and a sealed charm of warding; the Assay Office checks compliance and fines defaulters one bit per missing item.",
+        "source": "inferred"
+      }
+    ],
+    "tech_supernatural_limits": [
+      {
+        "id": "card-f08d67edb0",
+        "title": "World rule: hedge-craft",
+        "text": "Magic is rare and costly. The only working craft is hedge-craft: small charms of warding, finding and mending. Every charm costs the caster blood and days of fever, and no one can throw fire or raise the dead.",
+        "source": "card",
+        "source_entry_ids": [
+          "4"
+        ]
+      },
+      {
+        "id": "card-34d03a1464",
+        "title": "World rule: technology",
+        "text": "There is no gunpowder in this world. Weapons are crossbows, knives, axes and the occasional old cavalry saber. Firearms do not exist.",
+        "source": "card",
+        "source_entry_ids": [
+          "5"
+        ]
+      },
+      {
+        "id": "inf-741b25809d",
+        "title": "Hedge-witches",
+        "text": "Only seven hedge-witches operate within a week's ride; each can craft at most one charm per lunar cycle, and the fever leaves them bedridden for three days afterward.",
+        "source": "inferred"
+      },
+      {
+        "id": "inf-92a9446273",
+        "title": "Charm limits",
+        "text": "Warding charms stop rot and vermin in a ten-foot radius for a month; finding charms point to the nearest concentration of metal within a mile; mending charms knit clean breaks in bone or wood but cannot heal disease or poison.",
+        "source": "inferred"
+      },
+      {
+        "id": "inf-94ef82c7eb",
+        "title": "No artillery",
+        "text": "Siege engines, Greek fire, and alchemical explosives are absent; the heaviest projectile is a crossbow bolt, and the only area denial is a ditch and sharpened stakes.",
+        "source": "inferred"
+      }
+    ],
+    "economy_resources": [
+      {
+        "id": "card-379351a971",
+        "title": "Economy: currency and prices",
+        "text": "Trade runs on stamped silver bits and promissory chits from the Assay Office. A bed at the Lantern & Ford is one bit a night; a mule costs forty.",
+        "source": "card",
+        "source_entry_ids": [
+          "6"
+        ]
+      },
+      {
+        "id": "inf-6c952b48c7",
+        "title": "Silver price and tax",
+        "text": "The Assay Office pays twelve bits per troy ounce of pure silver, then takes a royal tenth; unassayed silver fetches eight bits on the Brotherhood's night market but carries a branding risk.",
+        "source": "inferred"
+      },
+      {
+        "id": "inf-ae6552dab0",
+        "title": "Daily costs",
+        "text": "A bowl of pease stew and a mug of small beer costs two copper pennies (ten pennies to the bit); a prospector's daily wage on a claim gang is one bit plus a share of any strike.",
+        "source": "inferred"
+      },
+      {
+        "id": "inf-8409c8c4fc",
+        "title": "Chit discount cycle",
+        "text": "Promissory chits trade at ninety percent face value the week after the Assay wagon leaves for Vael, dropping to fifty percent the week before it returns; Mara Quell sets the local rate by posting it on the Lantern's lintel.",
+        "source": "inferred"
+      }
+    ],
+    "taboos": [
+      {
+        "id": "card-22b2d9dad9",
+        "title": "World rule: hedge-craft",
+        "text": "Every charm costs the caster blood and days of fever, and no one can throw fire or raise the dead.",
+        "source": "card",
+        "source_entry_ids": [
+          "4"
+        ]
+      },
+      {
+        "id": "card-3774ac81a6",
+        "title": "World rule: technology",
+        "text": "There is no gunpowder in this world.",
+        "source": "card",
+        "source_entry_ids": [
+          "5"
+        ]
+      },
+      {
+        "id": "card-a88feced4e",
+        "title": "World rule: technology",
+        "text": "Firearms do not exist.",
+        "source": "card",
+        "source_entry_ids": [
+          "5"
+        ]
+      },
+      {
+        "id": "card-c63a0a5a8c",
+        "title": "Taboo: the river dead",
+        "text": "It is forbidden to pull a drowned body from the Greywater after sundown. Townsfolk believe the river keeps what it takes at night, and anyone who breaks this is shunned.",
+        "source": "card",
+        "source_entry_ids": [
+          "7"
+        ]
+      },
+      {
+        "id": "inf-a229cfcda3",
+        "title": "Assay seal tampering",
+        "text": "Breaking the wax seal on an assayed ingot or chit is punished by the loss of the offending hand; the Ferrymen's Brotherhood enforces this on their own members to keep the Office from closing the night market.",
+        "source": "inferred"
+      },
+      {
+        "id": "inf-a60e4669b8",
+        "title": "Unwilling hedge-craft",
+        "text": "Casting a charm on someone who has not given blood-consent is treated as assault with a deadly weapon; the caster pays a blood-price of two ounces of silver or suffers the same charm turned inward.",
+        "source": "inferred"
+      },
+      {
+        "id": "inf-469f0efc51",
+        "title": "Winter hoarding silence",
+        "text": "Speaking aloud of another household's stores after the compact is declared invites a fine of one bit and a public shaming at the ford; the Assay clerks record the offense in the town ledger.",
+        "source": "inferred"
+      }
+    ],
+    "era_feel": [
+      {
+        "id": "card-085f91193f",
+        "title": "Scenario",
+        "text": "A low-magic frontier town on the Greywater ford, during the second year of the silver rush. Winter is six weeks away.",
+        "source": "card",
+        "source_entry_ids": [
+          "card:scenario"
+        ]
+      },
+      {
+        "id": "inf-6ac6a92db8",
+        "title": "Mud season",
+        "text": "The river has not yet dropped to ford level; the rope ferry runs dawn to dusk, and the Lantern's cellar smells of wet wool, pine smoke, and the copper tang of fresh silver dust.",
+        "source": "inferred"
+      },
+      {
+        "id": "inf-780cfab4cb",
+        "title": "Cough sickness",
+        "text": "A dry hacking cough spreads through the camps each autumn; hedge-witches sell warding charms against it at three bits each, but the fever cost means only the richest gangs buy them.",
+        "source": "inferred"
+      },
+      {
+        "id": "inf-9e526a77cf",
+        "title": "Claim-jumping nights",
+        "text": "After the Assay wagon departs, gangs move boundary cairns under cloud cover; the Brotherhood ferries shovels and picks north for a bit a head, no questions asked.",
+        "source": "inferred"
+      }
+    ]
+  },
+  "research": [],
+  "dropped_inferred": [],
+  "counts": {
+    "card": 11,
+    "inferred": 20
+  }
+}
