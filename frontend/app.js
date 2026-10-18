@@ -1223,7 +1223,7 @@ function renderMessages(items) {
     importBtn.type = 'button';
     importBtn.className = 'subtle-btn';
     importBtn.textContent = '导入聊天记录';
-    importBtn.addEventListener('click', () => openSettings('world'));
+    importBtn.addEventListener('click', () => openSettings('import'));
     actions.appendChild(newBtn);
     actions.appendChild(importBtn);
     empty.appendChild(title);
