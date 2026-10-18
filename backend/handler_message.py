@@ -10,6 +10,7 @@ from typing import Any
 
 try:
     from .arbiter_runtime import run_arbiter
+    from .world_check import narrator_block as world_check_narrator_block, public_summary as world_check_summary, run_world_check
     from .arbiter_state import merge_arbiter_state
     from .continuity_resolver import resolve_important_npc_continuity
     from .continuity_hints import normalized_hint_entries
@@ -44,6 +45,7 @@ try:
     )
 except ImportError:
     from arbiter_runtime import run_arbiter
+    from world_check import narrator_block as world_check_narrator_block, public_summary as world_check_summary, run_world_check
     from arbiter_state import merge_arbiter_state
     from continuity_resolver import resolve_important_npc_continuity
     from continuity_hints import normalized_hint_entries
@@ -1541,7 +1543,16 @@ def handle_message(payload: dict[str, Any]) -> dict[str, Any]:
     arbiter = run_arbiter(text, scene)
     arbiter_result = arbiter.get('results', []) if arbiter.get('arbiter_needed') else None
     turn_trace['runtime']['arbiter'] = copy.deepcopy(arbiter)
-    system_prompt, user_prompt = build_narrator_input(context, text, arbiter_result=arbiter_result)
+    world_check = run_world_check(text, scene)
+    world_check_public = world_check_summary(world_check)
+    turn_trace['runtime']['world_check'] = copy.deepcopy(world_check)
+    _message_stage('world_check_complete', session_id=session_id, turn_id=turn_id, client_turn_id=client_turn_id)
+    system_prompt, user_prompt = build_narrator_input(
+        context,
+        text,
+        arbiter_result=arbiter_result,
+        world_check_block=world_check_narrator_block(world_check),
+    )
     prompt_stats = prompt_block_stats(system_prompt)
     turn_trace['runtime']['narrator'] = {
         'system_prompt': _trim_trace_text(_redact_trace_prompt(system_prompt)),
@@ -1688,6 +1699,7 @@ def handle_message(payload: dict[str, Any]) -> dict[str, Any]:
         'web': web_runtime_settings(),
         'post_commit_status': 'state_saved',
         'memory_status': 'pending',
+        'world_check': copy.deepcopy(world_check_public),
     }
     meta['last_turn_id'] += 1
     _cache_processed_turn(session_id, meta, client_turn_id, committed_response)
@@ -1701,6 +1713,7 @@ def handle_message(payload: dict[str, Any]) -> dict[str, Any]:
             'output_tokens': usage.get('output_tokens'),
         },
         'prompt_stats': prompt_stats,
+        'world_check': copy.deepcopy(world_check_public),
     }
 
     response = {
@@ -1712,10 +1725,12 @@ def handle_message(payload: dict[str, Any]) -> dict[str, Any]:
         'meta': {'turn_audit': turn_audit},
         'web': web_runtime_settings(),
         'memory_status': 'pending',
+        'world_check': copy.deepcopy(world_check_public),
     }
     if debug_enabled:
         response['debug'] = {
             'scene_mode': 'runtime-v3-memory',
+            'world_check': copy.deepcopy(world_check),
             'arbiter_used': bool(arbiter.get('arbiter_needed')),
             'arbiter_event_count': len(arbiter.get('results', [])),
             'arbiter_analysis': arbiter.get('analysis', {}),

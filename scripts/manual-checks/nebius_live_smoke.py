@@ -120,61 +120,46 @@ def run_import(args) -> int:
     return 0 if bible.get('status', {}).get('llm') == 'ok' else 1
 
 
-WORLD_CHECK_SYSTEM = """You are the World Check for a roleplay engine. Given a world bible and the
-player's intended action, decide whether the action fits the world.
-Reply ONLY with a JSON object:
-{"verdict": "allowed" | "allowed_with_cost" | "out_of_world",
- "rule": "the bible rule that decided it, quoted briefly, or \\"\\"",
- "cost": "concrete in-world cost if allowed_with_cost, else \\"\\"",
- "narrator_hint": "one sentence telling the narrator how to handle it"}"""
-
 DEFAULT_ACTIONS = [
-    'I order a drink and ask Mara who has been asking about me.',
-    'I pull a revolver from my coat and fire a warning shot into the ceiling.',
-    'I prick my thumb and work a finding charm to locate the stolen mule.',
-    'I take my smartphone out and look up the ferry schedule.',
-    'I wade into the river after dark to drag the drowned prospector ashore.',
-    'I cast a fireball at the Assay Office door.',
+    # (action, expected verdict) — expectations are for the Emberwell demo bible.
+    ('I order a drink and ask Mara who has been asking about me.', 'allowed'),
+    ('I pull a revolver from my coat and fire a warning shot into the ceiling.', 'out_of_world'),
+    ('I prick my thumb and work a finding charm to locate the stolen mule.', 'allowed_with_cost'),
+    ('I take my smartphone out and look up the ferry schedule.', 'out_of_world'),
+    ('I wade into the river after dark to drag the drowned prospector ashore.', 'allowed_with_cost'),
+    ('I cast a fireball at the Assay Office door.', 'out_of_world'),
+    ('I slip the Ferrymen two bits to carry unassayed silver across tonight.', 'allowed_with_cost'),
+    ('我把一枚银币拍在吧台上，要一张床位。', 'allowed'),
 ]
 
 
-def compact_bible(bible: dict, limit: int = 4000) -> str:
-    """Card canon first (it must never be cut), then inferred detail."""
-    card, inferred = [], []
-    for section, entries in (bible.get('sections') or {}).items():
-        for entry in entries:
-            is_card = entry.get('source') == 'card'
-            line = f"[{section}/{'CARD' if is_card else 'INFERRED'}] {entry.get('text', '')}"
-            (card if is_card else inferred).append(line)
-    text = '\n'.join(card + inferred)
-    return text[:limit]
-
-
 def run_world_check(args) -> int:
+    import world_check
+
     bible = json.loads(Path(args.bible).read_text(encoding='utf-8'))
-    bible_text = compact_bible(bible)
-    cfg = dict(resolve_provider_model('world_check'))
     if args.model:
-        cfg['model'] = {**cfg['model'], 'id': args.model}
-    model_id = cfg['model']['id']
+        import os
+        os.environ['THREADLOOM_OVERRIDE_WORLD_CHECK_MODEL'] = args.model
+    cases = [(action, '') for action in args.action] if args.action else DEFAULT_ACTIONS
     total_cost = 0.0
     latencies = []
-    print(f"model={model_id} max_tokens={cfg.get('max_output_tokens')} extra_body={cfg.get('extra_body')} response_format={cfg.get('response_format')}")
-    for action in args.action or DEFAULT_ACTIONS:
-        user = f'WORLD BIBLE:\n{bible_text}\n\nPLAYER ACTION: {action}'
-        t0 = time.monotonic()
-        reply, usage = model_client.call_model(cfg, WORLD_CHECK_SYSTEM, user)
-        dt = time.monotonic() - t0
-        latencies.append(dt)
-        total_cost += cost(model_id, usage)
-        try:
-            verdict = json.loads(reply)
-        except Exception:
-            verdict = {'unparsed': reply[:200]}
-        print(json.dumps({'action': action, 'latency_s': round(dt, 2), 'usage': usage, 'result': verdict}, ensure_ascii=False))
+    mismatches = 0
+    for action, expected in cases:
+        result = world_check.run_world_check(action, bible=bible)
+        latencies.append(result.get('latency_ms', 0) / 1000)
+        total_cost += cost(result.get('model', ''), result.get('usage', {}))
+        match = None if not expected else result.get('verdict') == expected
+        mismatches += 1 if match is False else 0
+        print(json.dumps({'action': action, 'expected': expected or None, 'match': match, 'result': result}, ensure_ascii=False))
     latencies.sort()
-    print(json.dumps({'model': model_id, 'calls': len(latencies), 'latency_p50_s': round(latencies[len(latencies) // 2], 2), 'latency_max_s': round(latencies[-1], 2), 'est_cost_usd': round(total_cost, 5)}))
-    return 0
+    print(json.dumps({
+        'calls': len(latencies),
+        'mismatches': mismatches,
+        'latency_p50_s': round(latencies[len(latencies) // 2], 2),
+        'latency_max_s': round(latencies[-1], 2),
+        'est_cost_usd': round(total_cost, 5),
+    }))
+    return 0 if mismatches == 0 else 1
 
 
 def main() -> int:

@@ -29,7 +29,7 @@ back into `tests/` as a real unit test instead.
 ## Nebius Token Factory live smoke (`nebius_live_smoke.py`)
 
 Needs `NEBIUS_API_KEY`; spends real tokens (about $0.01 per import run, well
-under $0.001 per World Check call). No running server needed.
+about $0.0006 per World Check call on Super). No running server needed.
 
 ```bash
 # Import the demo card end to end and build world-bible.json with Nemotron Ultra

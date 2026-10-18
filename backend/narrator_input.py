@@ -677,7 +677,7 @@ def _format_factlog_recall(hits: list | None, limit: int = 6) -> str:
     return header + '\n' + '\n'.join(rows)
 
 
-def build_narrator_input(context: dict, user_text: str, arbiter_result: Optional[dict] = None) -> tuple[str, str]:
+def build_narrator_input(context: dict, user_text: str, arbiter_result: Optional[dict] = None, world_check_block: str = '') -> tuple[str, str]:
     scene = context.get('scene_facts', {})
     persona = context.get('persona', [])
     preset = context.get('active_preset', {})
@@ -854,6 +854,10 @@ def build_narrator_input(context: dict, user_text: str, arbiter_result: Optional
     # 13. 裁定结果（如有）
     if arbiter_result:
         blocks.append('【本轮裁定结果】\n' + json.dumps(arbiter_result, ensure_ascii=False, indent=2))
+
+    # 13b. World Check（Nemotron 对照 world-bible 的本轮判定，如有）
+    if world_check_block and world_check_block.strip():
+        blocks.append(world_check_block.strip())
 
     blocks.append(
         '【本轮导演简报】\n'

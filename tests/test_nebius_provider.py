@@ -42,7 +42,7 @@ def test_runtime_config_has_nebius_roles(isolated_config):
     assert world_builder['provider'] == model_config.NEBIUS_PROVIDER_NAME
     assert world_builder['model'] == 'nvidia/Nemotron-3-Ultra-550b-a55b'
     assert world_builder['temperature'] == 0.2
-    assert cfg['models']['world_check']['model'] == model_config.NEMOTRON_NANO_MODEL
+    assert cfg['models']['world_check']['model'] == model_config.NEMOTRON_SUPER_MODEL
     assert cfg['roles']['world_builder'] == {'provider': 'llm', 'model_role': 'world_builder'}
     # The site provider is untouched.
     assert cfg['models']['narrator']['provider'] == model_config.SITE_PROVIDER_NAME
@@ -137,7 +137,7 @@ def test_call_model_passes_role_timeout(monkeypatch):
 def test_resolve_world_check_disables_thinking(monkeypatch, isolated_config):
     monkeypatch.setenv('NEBIUS_API_KEY', 'nb-test-key')
     resolved = model_config.resolve_provider_model('world_check')
-    assert resolved['model']['id'] == model_config.NEMOTRON_NANO_MODEL
+    assert resolved['model']['id'] == model_config.NEMOTRON_SUPER_MODEL
     # With thinking on, a short budget can be spent entirely on reasoning and
     # come back as content=null (observed live on Token Factory).
     assert resolved['extra_body'] == {'chat_template_kwargs': {'enable_thinking': False}}

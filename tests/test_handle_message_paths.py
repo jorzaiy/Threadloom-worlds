@@ -68,6 +68,8 @@ def _install_fakes(monkeypatch, *, state, meta, history=None):
             'persona': [],
         },
         'run_arbiter': lambda _text, _scene: {'arbiter_needed': False, 'results': [], 'analysis': {}},
+        # World Check never reaches the network in tests.
+        'run_world_check': lambda _text, _scene=None: {'ran': False, 'status': 'skipped:test'},
         'build_state_fragment': lambda *a, **k: {},
         'build_narrator_input': lambda *a, **k: ('SYS', 'USR'),
         'prompt_block_stats': lambda _sys: [],
@@ -140,6 +142,26 @@ def test_successful_runtime_turn_commits_and_caches(monkeypatch):
     assert last_meta['processed_client_turn_ids']['ct-9']['reply'] == NARRATOR_REPLY
     # cached entry is slimmed (state_snapshot dropped; rehydrated on hit)
     assert 'state_snapshot' not in last_meta['processed_client_turn_ids']['ct-9']
+
+
+def test_world_check_result_reaches_narrator_and_response(monkeypatch):
+    _install_fakes(monkeypatch, state=_RUNTIME_STATE, meta={'last_turn_id': 2, 'processed_client_turn_ids': {}})
+    verdict = {'ran': True, 'status': 'ok', 'verdict': 'allowed_with_cost', 'rule': 'curfew', 'cost': 'the watch notices',
+               'narrator_hint': 'h', 'latency_ms': 900, 'model': 'nano', 'usage': {'input_tokens': 5}}
+    seen = {}
+
+    def fake_input(*args, **kwargs):
+        seen.update(kwargs)
+        return ('SYS', 'USR')
+
+    monkeypatch.setattr(hm, 'run_world_check', lambda _text, _scene=None: dict(verdict))
+    monkeypatch.setattr(hm, 'build_narrator_input', fake_input)
+    resp = hm.handle_message(_payload(debug=True))
+    assert '【世界规则检查】' in seen['world_check_block'] and 'the watch notices' in seen['world_check_block']
+    assert resp['world_check']['verdict'] == 'allowed_with_cost'
+    assert 'usage' not in resp['world_check']
+    assert resp['meta']['turn_audit']['world_check']['rule'] == 'curfew'
+    assert resp['debug']['world_check']['usage'] == {'input_tokens': 5}
 
 
 def test_debug_flag_adds_debug_block(monkeypatch):

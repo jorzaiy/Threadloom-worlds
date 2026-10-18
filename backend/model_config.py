@@ -116,7 +116,10 @@ NEBIUS_ROLE_MODEL_DEFAULTS = {
     },
     'world_check': {
         'provider': NEBIUS_PROVIDER_NAME,
-        'model': NEMOTRON_NANO_MODEL,
+        # Super over Nano: same verdicts on the demo set, but Nano cites the
+        # wrong bible rule and ignores the hint language (2026-10-18 live
+        # smoke). Super ~1.5 s / ~$0.0006 per turn. Nano stays selectable.
+        'model': NEMOTRON_SUPER_MODEL,
         'temperature': 0.1,
         'max_output_tokens': 400,
         'stream': False,
