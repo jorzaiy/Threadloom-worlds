@@ -9,7 +9,9 @@
           "id": "gpt-5.4",
           "name": "gpt-5.4",
           "reasoning": true,
-          "input": ["text"],
+          "input": [
+            "text"
+          ],
           "cost": {
             "input": 0,
             "output": 0,
@@ -24,7 +26,9 @@
           "id": "Llama-3.3-70B",
           "name": "Llama-3.3-70B",
           "reasoning": false,
-          "input": ["text"],
+          "input": [
+            "text"
+          ],
           "cost": {
             "input": 0,
             "output": 0,
@@ -46,7 +50,9 @@
           "id": "nvidia/Nemotron-3-Ultra-550b-a55b",
           "name": "Nemotron 3 Ultra 550B-A55B",
           "reasoning": true,
-          "input": ["text"],
+          "input": [
+            "text"
+          ],
           "cost": {
             "input": 1,
             "output": 3,
@@ -61,7 +67,9 @@
           "id": "nvidia/nemotron-3-super-120b-a12b",
           "name": "Nemotron 3 Super 120B-A12B",
           "reasoning": true,
-          "input": ["text"],
+          "input": [
+            "text"
+          ],
           "cost": {
             "input": 0.3,
             "output": 0.9,
@@ -76,7 +84,26 @@
           "id": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
           "name": "Nemotron 3 Nano 30B-A3B",
           "reasoning": true,
-          "input": ["text"],
+          "input": [
+            "text"
+          ],
+          "cost": {
+            "input": 0.06,
+            "output": 0.24,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 262144,
+          "maxTokens": 32768,
+          "api": "openai-completions"
+        },
+        {
+          "id": "nvidia/Nemotron-3_5-Lightning",
+          "name": "Nemotron 3.5 Lightning",
+          "reasoning": true,
+          "input": [
+            "text"
+          ],
           "cost": {
             "input": 0.06,
             "output": 0.24,

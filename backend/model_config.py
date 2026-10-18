@@ -79,12 +79,17 @@ NEBIUS_PROVIDER_NAME = 'nebius-token-factory'
 NEBIUS_API_KEY_ENV = 'NEBIUS_API_KEY'
 NEBIUS_BASE_URL_ENV = 'NEBIUS_BASE_URL'
 NEBIUS_DEFAULT_BASE_URL = 'https://api.tokenfactory.nebius.com/v1/'
-# Model IDs verified against the official catalog
-# https://tokenfactory.nebius.com/model-catalog.md (2026-10-17). Not yet
-# verified with a live GET /v1/models call (no key available at the time).
+# Model IDs verified live on 2026-10-18: GET {base}/models on the global
+# endpoint lists all four, and chat completions succeed for each. The
+# us-central1 endpoint rejected the same key, so the global URL is the default.
 NEMOTRON_ULTRA_MODEL = 'nvidia/Nemotron-3-Ultra-550b-a55b'
 NEMOTRON_SUPER_MODEL = 'nvidia/nemotron-3-super-120b-a12b'
 NEMOTRON_NANO_MODEL = 'nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B'
+NEMOTRON_LIGHTNING_MODEL = 'nvidia/Nemotron-3_5-Lightning'
+# Nemotron chat templates honor this switch on Token Factory. With thinking
+# on, short-budget calls can return content=null after spending every token
+# on reasoning (seen with Nano at max_tokens=200 and Lightning at 400).
+NEMOTRON_NO_THINKING = {'chat_template_kwargs': {'enable_thinking': False}}
 NEBIUS_TOKEN_FACTORY_DEFAULT = {
     'baseUrl': NEBIUS_DEFAULT_BASE_URL,
     'apiKey': f'env:{NEBIUS_API_KEY_ENV}',
@@ -93,6 +98,7 @@ NEBIUS_TOKEN_FACTORY_DEFAULT = {
         {'id': NEMOTRON_ULTRA_MODEL, 'name': 'Nemotron 3 Ultra 550B-A55B', 'reasoning': True, 'input': ['text']},
         {'id': NEMOTRON_SUPER_MODEL, 'name': 'Nemotron 3 Super 120B-A12B', 'reasoning': True, 'input': ['text']},
         {'id': NEMOTRON_NANO_MODEL, 'name': 'Nemotron 3 Nano 30B-A3B', 'reasoning': True, 'input': ['text']},
+        {'id': NEMOTRON_LIGHTNING_MODEL, 'name': 'Nemotron 3.5 Lightning', 'reasoning': True, 'input': ['text']},
     ],
 }
 # Roles that always run on Token Factory (hackathon requirement: NVIDIA open
@@ -112,10 +118,12 @@ NEBIUS_ROLE_MODEL_DEFAULTS = {
         'provider': NEBIUS_PROVIDER_NAME,
         'model': NEMOTRON_NANO_MODEL,
         'temperature': 0.1,
-        'max_output_tokens': 1200,
+        'max_output_tokens': 400,
         'stream': False,
         'response_format': {'type': 'json_object'},
-        'timeout_seconds': 45,
+        'timeout_seconds': 20,
+        # Per-turn classifier: answer directly, no reasoning trace.
+        'extra_body': copy.deepcopy(NEMOTRON_NO_THINKING),
     },
 }
 STATE_KEEPER_CANDIDATE_DEFAULT = {
@@ -968,6 +976,9 @@ def resolve_provider_model(role: str = 'narrator') -> dict:
     timeout_seconds = role_cfg.get('timeout_seconds')
     if isinstance(timeout_seconds, (int, float)) and timeout_seconds > 0:
         resolved['timeout_seconds'] = int(timeout_seconds)
+    extra_body = role_cfg.get('extra_body')
+    if isinstance(extra_body, dict) and extra_body:
+        resolved['extra_body'] = copy.deepcopy(extra_body)
     return resolved
 
 

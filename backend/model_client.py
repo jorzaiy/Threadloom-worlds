@@ -307,6 +307,13 @@ def call_model(config: dict, system_prompt: str, user_prompt: str) -> tuple[str,
     response_format = config.get('response_format')
     if response_format:
         payload['response_format'] = response_format
+    # Provider-specific request fields (e.g. Nemotron on Nebius Token Factory:
+    # {"chat_template_kwargs": {"enable_thinking": false}}). Never overrides
+    # the core fields set above.
+    extra_body = config.get('extra_body')
+    if isinstance(extra_body, dict):
+        for key, value in extra_body.items():
+            payload.setdefault(key, value)
     if config.get('stream'):
         payload['stream'] = True
         try:
@@ -333,9 +340,13 @@ def call_model(config: dict, system_prompt: str, user_prompt: str) -> tuple[str,
         usage = data.get('usage', {})
         choice = (data.get('choices') or [{}])[0]
         finish_reason = choice.get('finish_reason')
-    return reply, {
+    result_usage = {
         'model': model['id'],
         'input_tokens': usage.get('prompt_tokens', 0),
         'output_tokens': usage.get('completion_tokens', 0),
         'finish_reason': finish_reason,
     }
+    details = usage.get('completion_tokens_details') if isinstance(usage, dict) else None
+    if isinstance(details, dict) and isinstance(details.get('reasoning_tokens'), int):
+        result_usage['reasoning_tokens'] = details['reasoning_tokens']
+    return reply, result_usage

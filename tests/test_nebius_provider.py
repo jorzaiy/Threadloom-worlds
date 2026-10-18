@@ -57,6 +57,7 @@ def test_nebius_provider_definition(isolated_config):
         'nvidia/Nemotron-3-Ultra-550b-a55b',
         'nvidia/nemotron-3-super-120b-a12b',
         'nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B',
+        'nvidia/Nemotron-3_5-Lightning',
     ]
 
 
@@ -131,3 +132,45 @@ def test_call_model_passes_role_timeout(monkeypatch):
     }, 's', 'u')
     assert reply == 'ok'
     assert seen == {'url': 'https://api.tokenfactory.nebius.com/v1/chat/completions', 'timeout': 240, 'auth': 'Bearer k'}
+
+
+def test_resolve_world_check_disables_thinking(monkeypatch, isolated_config):
+    monkeypatch.setenv('NEBIUS_API_KEY', 'nb-test-key')
+    resolved = model_config.resolve_provider_model('world_check')
+    assert resolved['model']['id'] == model_config.NEMOTRON_NANO_MODEL
+    # With thinking on, a short budget can be spent entirely on reasoning and
+    # come back as content=null (observed live on Token Factory).
+    assert resolved['extra_body'] == {'chat_template_kwargs': {'enable_thinking': False}}
+    assert resolved['max_output_tokens'] == 400
+    assert resolved['response_format'] == {'type': 'json_object'}
+    # Ultra keeps reasoning on for world building.
+    assert 'extra_body' not in model_config.resolve_provider_model('world_builder')
+
+
+def test_call_model_merges_extra_body_without_overriding_core_fields(monkeypatch):
+    import model_client
+
+    seen = {}
+
+    def _fake_post_json(url, payload, headers, timeout=None):
+        seen['payload'] = payload
+        return {
+            'choices': [{'message': {'content': '{"verdict": "allowed"}'}, 'finish_reason': 'stop'}],
+            'usage': {'prompt_tokens': 10, 'completion_tokens': 5, 'completion_tokens_details': {'reasoning_tokens': 0}},
+        }
+
+    monkeypatch.setattr(model_client, '_post_json', _fake_post_json)
+    reply, usage = model_client.call_model({
+        'provider': {'baseUrl': 'https://api.tokenfactory.nebius.com/v1/', 'apiKey': 'k', 'api': 'openai-completions'},
+        'model': {'id': 'nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B'},
+        'temperature': 0.1,
+        'max_output_tokens': 400,
+        'stream': False,
+        'extra_body': {'chat_template_kwargs': {'enable_thinking': False}, 'model': 'hijack', 'max_tokens': 1},
+    }, 's', 'u')
+    payload = seen['payload']
+    assert payload['chat_template_kwargs'] == {'enable_thinking': False}
+    assert payload['model'] == 'nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B'
+    assert payload['max_tokens'] == 400
+    assert reply == '{"verdict": "allowed"}'
+    assert usage['reasoning_tokens'] == 0
