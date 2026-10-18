@@ -126,11 +126,19 @@ def load_world_bible(source_root: Path | None = None) -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
+def is_canon_entry(entry: dict, *, locked: bool) -> bool:
+    """Card text and the user's own additions are always canon. Once the user
+    locks the bible, everything in it (Nemotron entries included) is canon:
+    locking is the user accepting the world as written."""
+    return locked or entry.get('source') in ('card', 'user')
+
+
 def compact_bible(bible: dict, limit: int = BIBLE_CHAR_LIMIT) -> str:
     """Card canon first (it must never be cut), then inferred detail."""
     card: list[str] = []
     inferred: list[str] = []
     sections = bible.get('sections') if isinstance(bible.get('sections'), dict) else {}
+    locked = bible.get('locked') is True
     for section, entries in sections.items():
         for entry in entries or []:
             if not isinstance(entry, dict):
@@ -138,9 +146,10 @@ def compact_bible(bible: dict, limit: int = BIBLE_CHAR_LIMIT) -> str:
             text = ' '.join(str(entry.get('text', '') or '').split())
             if not text:
                 continue
-            # Card text and the user's own additions are canon; model guesses are not.
-            is_card = entry.get('source') in ('card', 'user')
-            line = f"[{section}/{'CARD' if is_card else 'INFERRED'}] {text}"
+            is_card = is_canon_entry(entry, locked=locked)
+            region = ' '.join(str(entry.get('region', '') or '').split())
+            prefix = f'({region}) ' if region else ''
+            line = f"[{section}/{'CARD' if is_card else 'INFERRED'}] {prefix}{text}"
             (card if is_card else inferred).append(line)
     out: list[str] = []
     used = 0
@@ -189,7 +198,7 @@ def build_user_prompt(bible_text: str, user_text: str, scene: dict | None = None
     return '\n\n'.join(blocks)
 
 
-_RULE_TAG = re.compile(r'^\s*\[[A-Za-z_]+/(?:CARD|INFERRED)\]\s*')
+_RULE_TAG = re.compile(r'^\s*\[[A-Za-z_]+/(?:CARD|INFERRED)\]\s*(?:\([^)]{1,30}\)\s*)?')
 
 
 def normalize_result(payload: Any) -> dict | None:

@@ -2159,6 +2159,7 @@ const WORLD_SECTION_LABELS = {
   social_system: 'Social system',
   tech_supernatural_limits: 'Tech & supernatural limits',
   economy_resources: 'Economy & resources',
+  customs: 'Customs & daily life',
   taboos: 'Taboos & laws',
   era_feel: 'Era & feel',
 };
@@ -2309,7 +2310,9 @@ function buildWorldEntry(entry, { focus = false } = {}) {
     if (focus) setTimeout(() => area.focus(), 0);
   } else {
     row.appendChild(tag);
-    row.appendChild(worldEl('span', 'world-entry-text', entry.text || ''));
+    const text = worldEl('span', 'world-entry-text', entry.text || '');
+    if (entry.region) text.prepend(worldEl('span', 'world-region', entry.region));
+    row.appendChild(text);
   }
   return row;
 }

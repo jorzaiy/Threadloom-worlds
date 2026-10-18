@@ -169,3 +169,17 @@ def test_rule_section_tag_is_stripped():
 def test_user_entries_count_as_canon():
     text = wc.compact_bible({'sections': {'taboos': [{'text': 'No fires on the ferry.', 'source': 'user'}]}})
     assert text == '[taboos/CARD] No fires on the ferry.'
+
+
+def test_locked_bible_makes_nemotron_entries_canon():
+    locked = {**BIBLE, 'locked': True}
+    text = wc.compact_bible(locked)
+    assert 'INFERRED' not in text
+    assert '[tech_supernatural_limits/CARD] Folk charms exist' in text
+
+
+def test_compact_bible_tags_region_and_rule_tag_is_stripped():
+    bible = {'sections': {'customs': [{'text': '茶楼清晨开市。', 'source': 'card', 'region': '岭南'}]}}
+    assert '[customs/CARD] (岭南) 茶楼清晨开市。' in wc.compact_bible(bible)
+    result = wc.normalize_result({'verdict': 'allowed', 'rule': '[customs/CARD] (岭南) 茶楼清晨开市。'})
+    assert result['rule'] == '茶楼清晨开市。'

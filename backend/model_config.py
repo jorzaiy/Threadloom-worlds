@@ -109,7 +109,7 @@ NEBIUS_ROLE_MODEL_DEFAULTS = {
         'provider': NEBIUS_PROVIDER_NAME,
         'model': NEMOTRON_ULTRA_MODEL,
         'temperature': 0.4,
-        'max_output_tokens': 8000,
+        'max_output_tokens': 12000,
         'stream': False,
         'response_format': {'type': 'json_object'},
         'timeout_seconds': 240,

@@ -3,13 +3,14 @@
 
 The world bible sits next to the distilled lorebook output of the active
 character source (``lorebook-foundation.json`` / ``lorebook-index.json``) and
-holds seven sections:
+holds eight sections:
 
 - geography
 - factions
 - social_system
 - tech_supernatural_limits
 - economy_resources
+- customs
 - taboos
 - era_feel
 
@@ -73,7 +74,7 @@ except ModuleNotFoundError as _err:  # pragma: no cover - environment problem
 logger = logging.getLogger(__name__)
 
 WORLD_BIBLE_FILE = 'world-bible.json'
-WORLD_BIBLE_VERSION = 1
+WORLD_BIBLE_VERSION = 2
 WORLD_BUILDER_ROLE = 'world_builder'
 SOURCE_CARD = 'card'
 SOURCE_INFERRED = 'inferred'
@@ -87,11 +88,19 @@ SECTIONS: tuple[str, ...] = (
     'social_system',
     'tech_supernatural_limits',
     'economy_resources',
+    'customs',
     'taboos',
     'era_feel',
 )
 MAX_CARD_ENTRIES_PER_SECTION = 12
 MAX_INFERRED_ENTRIES_PER_SECTION = 4
+# The sections that give a scene its texture get more room.
+MAX_INFERRED_BY_SECTION: dict[str, int] = {
+    'geography': 6,
+    'economy_resources': 6,
+    'customs': 6,
+}
+REGION_TEXT_LIMIT = 48
 CARD_ENTRY_TEXT_LIMIT = 400
 INFERRED_ENTRY_TEXT_LIMIT = 300
 LLM_PROMPT_CHAR_BUDGET = 24000
@@ -122,6 +131,10 @@ SECTION_KEYWORDS: dict[str, tuple[str, ...]] = {
     'economy_resources': (
         '经济', '货币', '资源', '贸易', '商会', '银两', '灵石', '物资', '粮食', '市场', '税',
         'economy', 'currency', 'trade', 'resource', 'market', 'coin', 'gold', 'supply',
+    ),
+    'customs': (
+        '风俗', '习俗', '民俗', '风土', '人情', '饮食', '菜肴', '服饰', '衣着', '节日', '节庆', '方言', '口音', '礼节', '婚丧', '庙会',
+        'custom', 'customs', 'cuisine', 'food', 'dish', 'festival', 'clothing', 'dress', 'etiquette', 'dialect', 'folk',
     ),
     'taboos': (
         '禁忌', '禁地', '严禁', '禁止', '不得', '不允许', '不存在', '诅咒',
@@ -168,10 +181,40 @@ Output ONLY a JSON object, no prose, in exactly this shape:
     "social_system": [],
     "tech_supernatural_limits": [],
     "economy_resources": [],
+    "customs": [],
     "taboos": [],
     "era_feel": []
   }
 }
+Each entry may also carry "region" when it holds in ONE region only. Facts that
+span several regions, the whole world, or a border between two regions carry
+no region. Most factions, social_system, tech_supernatural_limits, taboos and
+era_feel entries should have no region. Write the region as its name followed by the main
+cities or places inside it, separated by "/", using names exactly as the card
+writes them (e.g. "北方/燕云十六郡/幽州", "Lowlands/Emberwell/the ferry").
+The engine matches these names against the scene location, so never use
+vague directions alone ("North", "南方") when the card has real place names.
+
+What each section is for (keep them apart, never restate one in another):
+- geography: PHYSICAL world only: terrain, climate and seasons, rivers and
+  coasts, main roads/passes/waterways, and travel times between major places
+  (e.g. "fast horse from A to B: 4 days"). Who rules a place goes in factions.
+- factions: who holds power where, their territory, strength and aims.
+- social_system: ranks, law, how ordinary people are governed.
+- tech_supernatural_limits: what exists and what does not, and its costs.
+- economy_resources: currency and CONCRETE everyday prices (a meal, a night at
+  an inn, a horse, a weapon, a permit or toll), regional products, and how
+  ordinary people make a living.
+- customs: daily life texture: food and drink, dress, speech habits and
+  dialect, festivals, etiquette and greetings, what a street or market looks
+  and sounds like. Customs describe "how life usually is"; prohibitions go in
+  taboos.
+- taboos: what is forbidden or feared, and the punishment.
+- era_feel: overall era, tone and mood.
+
+Regional coverage: if the card names several regions, give each major region
+at least one entry in geography, economy_resources and customs (tagged with
+"region"), so the narrator has local flavour wherever the scene moves.
 
 Hard rules:
 1. CARD facts are canon. Never contradict, weaken, reinterpret, or repeat them.
@@ -179,11 +222,13 @@ Hard rules:
    never introduce it.
 2. Only add what the card leaves open and a story would need: concrete limits,
    costs, who holds power, what things cost, what people fear.
-3. At most 4 entries per section; fewer is better than filler. A section may
-   be an empty list.
+3. At most 6 entries for geography, economy_resources and customs, at most 4
+   for every other section; fewer is better than filler. A section may be an
+   empty list.
 4. Each text is at most 2 sentences and concrete (names, numbers, costs,
    consequences), not generic flavour.
-5. Do not invent major named characters; this is about the world, not plot.
+5. Do not invent named characters (no faction leaders, no named NPCs); this
+   is about the world, not plot.
 6. Write in the same language as the CARD facts.
 7. REFERENCE notes (if any) are real-world research for realistic or
    historical settings; use them for accuracy, but CARD still wins.
@@ -444,7 +489,15 @@ def _normalize_inferred_entry(raw: Any) -> dict | None:
     if not text:
         return None
     title = _compact(raw.get('title', '') or '', 60)
-    return {'title': title, 'text': text}
+    entry = {'title': title, 'text': text}
+    region = _compact(raw.get('region', '') or '', REGION_TEXT_LIMIT)
+    if region:
+        entry['region'] = region
+    return entry
+
+
+def inferred_limit(section: str) -> int:
+    return MAX_INFERRED_BY_SECTION.get(section, MAX_INFERRED_ENTRIES_PER_SECTION)
 
 
 def merge_world_bible(
@@ -495,18 +548,21 @@ def merge_world_bible(
                     reason = f'contradicts_card:{term}'
             if not reason and any(_similarity(entry['text'], item['text']) >= DUPLICATE_SIMILARITY for item in merged[section]):
                 reason = 'duplicates_inferred'
-            if not reason and kept >= MAX_INFERRED_ENTRIES_PER_SECTION:
+            if not reason and kept >= inferred_limit(section):
                 reason = 'section_limit'
             if reason:
                 dropped.append({'section': section, 'title': entry['title'], 'text': entry['text'], 'reason': reason})
                 continue
-            merged[section].append({
+            item = {
                 'id': _stable_id('inf', f"{section}:{entry['text']}"),
                 'title': entry['title'],
                 'text': entry['text'],
                 # Provenance is assigned here, never taken from the model.
                 'source': SOURCE_INFERRED,
-            })
+            }
+            if entry.get('region'):
+                item['region'] = entry['region']
+            merged[section].append(item)
             kept += 1
     return merged, dropped
 
@@ -839,6 +895,12 @@ def save_world_bible_edits(
                     entry = {'id': _stable_id('user', f'{name}:{text}'), 'title': '', 'text': text, 'source': SOURCE_USER}
                 if 'title' in raw:
                     entry['title'] = _compact(raw.get('title', '') or '', 60)
+                if 'region' in raw:
+                    region = _compact(raw.get('region', '') or '', REGION_TEXT_LIMIT)
+                    if region:
+                        entry['region'] = region
+                    else:
+                        entry.pop('region', None)
                 cleaned[name].append(entry)
         bible['sections'] = cleaned
         bible['counts'] = _count_sources(cleaned)

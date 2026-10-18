@@ -721,6 +721,11 @@ def build_narrator_input(context: dict, user_text: str, arbiter_result: Optional
         '- Output only the final in-world narrative. Do not think out loud. Do not explain the rules. Do not mention the user request or compatibility check.'
     )
 
+    # 3b. 世界骨架（world-bible 的固定基础格局，每轮都带）
+    world_skeleton = str(context.get('world_skeleton', '') or '').strip()
+    if world_skeleton:
+        blocks.append(world_skeleton)
+
     # 4. 玩家档案
     player_md = context.get('player_profile_md', '').strip()
     player_json = context.get('player_profile_json', {})

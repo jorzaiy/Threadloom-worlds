@@ -11,6 +11,7 @@ from typing import Any
 try:
     from .arbiter_runtime import run_arbiter
     from .world_check import narrator_block as world_check_narrator_block, public_summary as world_check_summary, run_world_check
+    from .world_skeleton import world_skeleton_for_scene
     from .arbiter_state import merge_arbiter_state
     from .continuity_resolver import resolve_important_npc_continuity
     from .continuity_hints import normalized_hint_entries
@@ -46,6 +47,7 @@ try:
 except ImportError:
     from arbiter_runtime import run_arbiter
     from world_check import narrator_block as world_check_narrator_block, public_summary as world_check_summary, run_world_check
+    from world_skeleton import world_skeleton_for_scene
     from arbiter_state import merge_arbiter_state
     from continuity_resolver import resolve_important_npc_continuity
     from continuity_hints import normalized_hint_entries
@@ -1213,6 +1215,7 @@ def _finalize_opening_choice(choice, *, session_id, turn_id, ts, client_turn_id,
     scene = context.get('scene_facts', {})
     arbiter = run_arbiter(opening_prompt, scene)
     arbiter_result = arbiter.get('results', []) if arbiter.get('arbiter_needed') else None
+    context['world_skeleton'] = world_skeleton_for_scene(context.get('scene_facts', {}))
     system_prompt, user_prompt = build_narrator_input(context, opening_prompt, arbiter_result=arbiter_result)
     reply, usage, narrator_retry_trace = _call_narrator_with_retries(system_prompt, user_prompt)
     _message_stage('narrator_complete', session_id=session_id, turn_id=turn_id, client_turn_id=client_turn_id)
@@ -1544,6 +1547,8 @@ def handle_message(payload: dict[str, Any]) -> dict[str, Any]:
     arbiter_result = arbiter.get('results', []) if arbiter.get('arbiter_needed') else None
     turn_trace['runtime']['arbiter'] = copy.deepcopy(arbiter)
     world_check = run_world_check(text, scene)
+    context['world_skeleton'] = world_skeleton_for_scene(scene)
+    turn_trace['runtime']['world_skeleton_chars'] = len(context['world_skeleton'])
     world_check_public = world_check_summary(world_check)
     turn_trace['runtime']['world_check'] = copy.deepcopy(world_check)
     _message_stage('world_check_complete', session_id=session_id, turn_id=turn_id, client_turn_id=client_turn_id)

@@ -68,7 +68,7 @@ def test_world_bible_schema_with_mocked_llm(monkeypatch, nebius_key):
     assert list(bible['sections'].keys()) == list(wb.SECTIONS)
     assert set(wb.SECTIONS) == {
         'geography', 'factions', 'social_system', 'tech_supernatural_limits',
-        'economy_resources', 'taboos', 'era_feel',
+        'economy_resources', 'customs', 'taboos', 'era_feel',
     }
     entries = _all_entries(bible)
     assert entries
@@ -162,7 +162,7 @@ def test_merge_english_negation_and_section_limit():
     card_sections['tech_supernatural_limits'].append({'title': 'Rules', 'text': 'Magic does not exist in this world.', 'source': 'card'})
     inferred = {
         'tech_supernatural_limits': [{'title': 'Court mages', 'text': 'Court mages heal nobles with magic.'}],
-        'economy_resources': [{'title': f'Item {i}', 'text': text} for i, text in enumerate([
+        'factions': [{'title': f'Item {i}', 'text': text} for i, text in enumerate([
             'Salt is taxed at the river gates.',
             'Iron tools are rented by the season.',
             'Grain prices double every winter.',
@@ -173,7 +173,7 @@ def test_merge_english_negation_and_section_limit():
     }
     merged, dropped = wb.merge_world_bible(card_sections, inferred)
     assert any(item['reason'] == 'contradicts_card:magic' for item in dropped)
-    assert len(merged['economy_resources']) == wb.MAX_INFERRED_ENTRIES_PER_SECTION
+    assert len(merged['factions']) == wb.inferred_limit('factions') == 4
     assert sum(1 for item in dropped if item['reason'] == 'section_limit') == 2
 
 
@@ -523,3 +523,52 @@ def test_locked_user_edits_survive_rebuild(tmp_path, monkeypatch):
     report = wb.rebuild_world_bible(tmp_path, use_tavily=False)
     assert report['action'] == 'kept_locked'
     assert wb.load_world_bible(tmp_path)['sections']['era_feel'][0]['text'] == 'Rain every evening.'
+
+
+def test_texture_sections_get_more_room_and_keep_region():
+    inferred = {
+        'customs': [
+            {'title': f'C{i}', 'text': text, 'region': '岭南' if i % 2 else ''}
+            for i, text in enumerate([
+                '北地人早饭吃羊汤泡馍，冬日家家腌酸菜。',
+                '岭南茶楼清晨开市，客人以叩指代谢。',
+                '京畿官话为尊，市井以儿化音辨身份。',
+                '漕帮船工端午赛龙舟，输家请全船喝酒。',
+                '七十二峰门人见面行抱剑礼，不握手。',
+                '边镇妇人头裹青布，出门必带短刀。',
+                '江上渡口挂红灯笼表示夜里仍可渡河。',
+                '山中猎户用骨哨互通讯息，三短一长为求援。',
+            ])
+        ],
+    }
+    merged, dropped = wb.merge_world_bible(wb.empty_sections(), inferred)
+    assert len(merged['customs']) == 6
+    assert sum(1 for item in dropped if item['reason'] == 'section_limit') == 2
+    assert merged['customs'][1]['region'] == '岭南'
+    assert 'region' not in merged['customs'][0]
+
+
+def test_card_customs_are_classified():
+    assert wb.classify_section('岭南风俗', '茶楼清晨开市，节庆时家家挂灯。') == 'customs'
+
+
+def test_prompt_separates_physical_geography_and_asks_for_prices():
+    system = wb.WORLD_BUILDER_SYSTEM
+    assert '"customs": []' in system
+    assert 'PHYSICAL world only' in system
+    assert 'CONCRETE everyday prices' in system
+    assert '"region"' in system and '北方/燕云十六郡/幽州' in system
+
+
+def test_user_edit_can_set_and_clear_region(tmp_path):
+    bible = wb.build_world_bible(CORE, LOREBOOK, use_llm=False, use_tavily=False)
+    (tmp_path / wb.WORLD_BIBLE_FILE).write_text(json.dumps(bible, ensure_ascii=False), encoding='utf-8')
+    saved = wb.save_world_bible_edits(
+        {'customs': [{'text': '岭南茶楼清晨开市。', 'region': '岭南'}]}, source_root=tmp_path,
+    )
+    entry = saved['sections']['customs'][0]
+    assert entry['region'] == '岭南' and entry['source'] == 'user'
+    saved = wb.save_world_bible_edits(
+        {'customs': [{'id': entry['id'], 'text': entry['text'], 'region': ''}]}, source_root=tmp_path,
+    )
+    assert 'region' not in saved['sections']['customs'][0]

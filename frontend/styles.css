@@ -3124,6 +3124,16 @@ input:checked + .toggle-slider:before {
 }
 .source-card .world-source { color: var(--primary); border-color: rgba(64, 82, 69, 0.35); }
 .source-inferred .world-source { color: #4b6a1f; background: rgba(118, 185, 0, 0.12); border-color: rgba(118, 185, 0, 0.4); }
+.world-region {
+  display: inline-block;
+  margin-right: 0.35rem;
+  font-size: 0.68rem;
+  padding: 0.04rem 0.4rem;
+  border-radius: 999px;
+  color: var(--accent);
+  background: rgba(122, 92, 71, 0.08);
+  white-space: nowrap;
+}
 .source-user .world-source { color: var(--accent); border-color: rgba(122, 92, 71, 0.4); }
 .world-entry-input { width: 100%; resize: vertical; font: inherit; font-size: 0.85rem; padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-high); color: var(--text); }
 .world-del-btn { padding: 0.1rem; }
