@@ -12,6 +12,8 @@ COPY --chown=user requirements.txt ./
 RUN grep -vE '^(pytest|basedpyright)' requirements.txt > /tmp/req.txt && pip install -r /tmp/req.txt
 
 COPY --chown=user . .
+# WORKDIR is created root-owned; give the app user the tree + a writable data dir.
+RUN mkdir -p /home/user/app/runtime-data && chown -R user:user /home/user/app
 USER user
 
 EXPOSE 7860
