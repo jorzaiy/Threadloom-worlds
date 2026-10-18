@@ -1665,7 +1665,11 @@ def handle_message(payload: dict[str, Any]) -> dict[str, Any]:
     # 方案 7.2：不再同步调用 state_keeper / skeleton_keeper / possession retry。
     # 小结与 state 由后台 summarizer 在一次调用中生成。
 
-    append_turn_history(assistant_item={'ts': ts + 1, 'role': 'assistant', 'content': reply, 'completion_status': completion_status})
+    assistant_item = {'ts': ts + 1, 'role': 'assistant', 'content': reply, 'completion_status': completion_status}
+    if world_check_public.get('ran'):
+        # Shown as a per-message chip in the web UI; never fed back to the narrator.
+        assistant_item['world_check'] = copy.deepcopy(world_check_public)
+    append_turn_history(assistant_item=assistant_item)
     _message_stage('history_committed', session_id=session_id, turn_id=turn_id, client_turn_id=client_turn_id)
 
     # Memory V3 流程：

@@ -21,14 +21,14 @@ EXPECTED_GET = {
     '/api/health', '/api/state', '/api/sessions', '/api/providers', '/api/characters',
     '/api/user-profile', '/api/character/profile-override', '/user-avatar', '/api/site-config',
     '/api/model-config', '/api/narrator-preset', '/api/users', '/api/auth/me', '/api/history',
-    '/api/memory', '/api/entity', '/', '/index.html', '/app.js', '/login.js', '/marked.min.js', '/styles.css',
+    '/api/memory', '/api/entity', '/api/world-bible', '/', '/index.html', '/app.js', '/login.js', '/marked.min.js', '/styles.css',
     '/favicon.svg', '/character-cover',
 }
 
 EXPECTED_POST = {
     '/api/new-game', '/api/delete-session', '/api/regenerate-last', '/api/delete-latest-turn',
     '/api/message', '/api/session-audit', '/api/character/select', '/api/character/delete',
-    '/api/character/rebuild-lorebook', '/api/characters/import', '/api/character/profile-override',
+    '/api/character/rebuild-lorebook', '/api/characters/import', '/api/world-bible', '/api/world-bible/rebuild', '/api/character/profile-override',
     '/api/characters/profile-override', '/api/user-profile/normalize',
     '/api/character/profile-override/normalize', '/api/user-profile/preview',
     '/api/character/profile-override/preview', '/api/user-profile', '/api/user-avatar',

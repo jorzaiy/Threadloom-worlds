@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlparse
 
 from character_manager import delete_character_card, import_character_card_base64, list_character_cards, rebuild_character_lorebook, set_active_character
 from handler_message import handle_message
+from world_builder import load_world_bible, safe_rebuild_world_bible, save_world_bible_edits
 from import_sillytavern_chat import import_sillytavern_from_content, preview_chat_import
 from model_config import (
     delete_narrator_preset,
@@ -88,6 +89,9 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 logger = logging.getLogger('threadloom.server')
+WORLD_BIBLE_REBUILD_COOLDOWN_S = 60
+_WORLD_BIBLE_REBUILD_AT: dict[str, float] = {}
+_WORLD_BIBLE_REBUILD_LOCK = threading.Lock()
 MULTI_USER_PRODUCT_ENABLED = True
 
 PUBLIC_GET_PATHS = {
@@ -574,6 +578,14 @@ class Handler(BaseHTTPRequestHandler):
         payload['web'] = web_runtime_settings()
         return self._send(200, payload)
 
+    def _get_world_bible(self, parsed, qs):
+        bible = load_world_bible()
+        return self._send(200, {
+            'exists': bool(bible),
+            'world_bible': bible or None,
+            'character_card': load_character_card_meta(),
+        })
+
     def _get_characters(self, parsed, qs):
         return self._send(200, {
             'characters': list_character_cards(),
@@ -879,6 +891,7 @@ class Handler(BaseHTTPRequestHandler):
         '/api/history': _get_history,
         '/api/memory': _get_memory,
         '/api/entity': _get_entity,
+        '/api/world-bible': _get_world_bible,
         '/': _get_index,
         '/index.html': _get_index,
         '/app.js': _get_app_js,
@@ -1216,6 +1229,27 @@ class Handler(BaseHTTPRequestHandler):
         result['character_card'] = load_character_card_meta()
         result['web'] = web_runtime_settings()
         return self._send(200, result)
+
+    def _post_world_bible(self, parsed, payload):
+        try:
+            bible = save_world_bible_edits(payload.get('sections'), locked=payload.get('locked'))
+        except ValueError as err:
+            return self._invalid_input(str(err))
+        return self._send(200, {'ok': True, 'exists': True, 'world_bible': bible})
+
+    def _post_world_bible_rebuild(self, parsed, payload):
+        # Each rebuild is a paid Nemotron Ultra call; throttle per character.
+        key = f'{active_user_id()}:{active_character_id()}'
+        now = time.monotonic()
+        with _WORLD_BIBLE_REBUILD_LOCK:
+            last = _WORLD_BIBLE_REBUILD_AT.get(key, 0.0)
+            if now - last < WORLD_BIBLE_REBUILD_COOLDOWN_S:
+                wait = int(WORLD_BIBLE_REBUILD_COOLDOWN_S - (now - last)) + 1
+                return self._send(429, {'error': {'code': 'RATE_LIMITED', 'message': f'world bible was just rebuilt; try again in {wait}s'}})
+            _WORLD_BIBLE_REBUILD_AT[key] = now
+        report = safe_rebuild_world_bible(force=bool(payload.get('force')))
+        bible = load_world_bible()
+        return self._send(200, {'ok': bool(report.get('success')), 'report': report, 'exists': bool(bible), 'world_bible': bible or None})
 
     def _post_characters_import(self, parsed, payload):
         filename = str(payload.get('filename', '') or '').strip()
@@ -1595,6 +1629,8 @@ class Handler(BaseHTTPRequestHandler):
         '/api/character/delete': _post_character_delete,
         '/api/character/rebuild-lorebook': _post_character_rebuild_lorebook,
         '/api/characters/import': _post_characters_import,
+        '/api/world-bible': _post_world_bible,
+        '/api/world-bible/rebuild': _post_world_bible_rebuild,
         '/api/character/profile-override': _post_character_profile_override,
         '/api/characters/profile-override': _post_character_profile_override,
         '/api/user-profile/normalize': _post_profile_normalize,

@@ -96,6 +96,32 @@
         </button>
       </div>
       <div class="debug-float-body">
+        <!-- 0. World Check + World Bible (Threadloom Worlds) -->
+        <section class="card sidebar-group world-group">
+          <details class="sidebar-details" open>
+            <summary class="sidebar-summary"><span class="material-symbols-outlined sidebar-summary-icon">public</span>世界规则 · World</summary>
+            <div class="sidebar-details-body">
+              <div id="worldCheckView" class="world-check-view"></div>
+              <div class="world-bible-head">
+                <div>
+                  <strong>World Bible</strong>
+                  <small id="worldBibleMeta" class="world-bible-meta"></small>
+                </div>
+                <div class="world-bible-actions">
+                  <button id="worldBibleLockBtn" class="subtle-btn" type="button" hidden></button>
+                  <button id="worldBibleEditBtn" class="subtle-btn" type="button" hidden>编辑</button>
+                  <button id="worldBibleRebuildBtn" class="subtle-btn" type="button" hidden>重新生成</button>
+                </div>
+              </div>
+              <div id="worldBibleView" class="world-bible-view"></div>
+              <div id="worldBibleEditActions" class="panel-form-actions" hidden>
+                <button id="worldBibleSaveBtn" type="button" class="primary-btn">保存并锁定</button>
+                <button id="worldBibleCancelBtn" type="button" class="subtle-btn">取消</button>
+              </div>
+            </div>
+          </details>
+        </section>
+
         <!-- 1. 当前状态 -->
         <section class="card sidebar-group">
           <details class="sidebar-details" open>

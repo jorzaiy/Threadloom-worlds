@@ -164,3 +164,8 @@ def test_narrator_input_injects_world_check_block(monkeypatch):
 def test_rule_section_tag_is_stripped():
     out = wc.normalize_result({'verdict': 'allowed', 'rule': '[taboos/CARD] Firearms do not exist.'})
     assert out['rule'] == 'Firearms do not exist.'
+
+
+def test_user_entries_count_as_canon():
+    text = wc.compact_bible({'sections': {'taboos': [{'text': 'No fires on the ferry.', 'source': 'user'}]}})
+    assert text == '[taboos/CARD] No fires on the ferry.'

@@ -138,7 +138,8 @@ def compact_bible(bible: dict, limit: int = BIBLE_CHAR_LIMIT) -> str:
             text = ' '.join(str(entry.get('text', '') or '').split())
             if not text:
                 continue
-            is_card = entry.get('source') == 'card'
+            # Card text and the user's own additions are canon; model guesses are not.
+            is_card = entry.get('source') in ('card', 'user')
             line = f"[{section}/{'CARD' if is_card else 'INFERRED'}] {text}"
             (card if is_card else inferred).append(line)
     out: list[str] = []

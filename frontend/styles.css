@@ -3090,3 +3090,51 @@ input:checked + .toggle-slider:before {
     "GRAD" 0,
     "opsz" 20;
 }
+
+/* ── Threadloom Worlds: World Check + World Bible ─────────────────────────── */
+.world-check-view { display: grid; gap: 0.4rem; margin-bottom: 0.9rem; }
+.world-check-title { font-size: 0.78rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-soft); }
+.world-verdict {
+  justify-self: start; padding: 0.2rem 0.6rem; border-radius: 999px;
+  font-size: 0.82rem; font-weight: 600; border: 1px solid var(--border);
+}
+.verdict-allowed.world-verdict { background: var(--primary-soft); color: var(--ok); }
+.verdict-allowed_with_cost.world-verdict { background: rgba(222, 170, 92, 0.2); color: #8a5a12; border-color: rgba(176, 120, 40, 0.35); }
+.verdict-out_of_world.world-verdict { background: rgba(186, 26, 26, 0.1); color: var(--danger); border-color: rgba(186, 26, 26, 0.3); }
+.world-check-details { display: grid; gap: 0.3rem; font-size: 0.86rem; }
+.world-check-row { display: grid; grid-template-columns: 6.5rem 1fr; gap: 0.5rem; }
+.world-check-key { color: var(--text-soft); }
+.world-check-val { color: var(--text); overflow-wrap: anywhere; }
+.world-check-meta { font-size: 0.75rem; color: var(--text-soft); }
+.world-empty { margin: 0; font-size: 0.85rem; color: var(--text-muted); }
+
+.world-bible-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.6rem; flex-wrap: wrap; padding-top: 0.7rem; border-top: 1px solid var(--border); }
+.world-bible-meta { display: block; font-size: 0.76rem; color: var(--text-soft); margin-top: 0.15rem; }
+.world-bible-actions { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+.world-bible-actions .subtle-btn { padding: 0.25rem 0.6rem; font-size: 0.8rem; }
+.world-bible-view { display: grid; gap: 0.35rem; margin-top: 0.6rem; }
+.world-section { border: 1px solid var(--border); border-radius: 10px; background: var(--surface-low); }
+.world-section-title { cursor: pointer; padding: 0.45rem 0.7rem; font-size: 0.86rem; font-weight: 600; color: var(--text); }
+.world-entries { display: grid; gap: 0.35rem; padding: 0 0.7rem 0.6rem; }
+.world-entry { display: grid; grid-template-columns: auto 1fr auto; gap: 0.5rem; align-items: start; font-size: 0.85rem; line-height: 1.45; }
+.world-entry-text { grid-column: 2 / 4; color: var(--text); overflow-wrap: anywhere; }
+.world-source {
+  font-size: 0.68rem; padding: 0.08rem 0.4rem; border-radius: 999px; white-space: nowrap; margin-top: 0.12rem;
+  border: 1px solid var(--border); color: var(--text-muted); background: var(--surface-high);
+}
+.source-card .world-source { color: var(--primary); border-color: rgba(64, 82, 69, 0.35); }
+.source-inferred .world-source { color: #4b6a1f; background: rgba(118, 185, 0, 0.12); border-color: rgba(118, 185, 0, 0.4); }
+.source-user .world-source { color: var(--accent); border-color: rgba(122, 92, 71, 0.4); }
+.world-entry-input { width: 100%; resize: vertical; font: inherit; font-size: 0.85rem; padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-high); color: var(--text); }
+.world-del-btn { padding: 0.1rem; }
+.world-add-btn { margin: 0 0.7rem 0.6rem; padding: 0.2rem 0.6rem; font-size: 0.8rem; }
+
+/* Per-reply World Check chip */
+.world-check-chip { margin-top: 0.8rem; font-size: 0.8rem; color: var(--text-muted); border-top: 1px dashed var(--border); padding-top: 0.45rem; }
+.world-check-chip summary { cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; list-style: none; user-select: none; }
+.world-check-chip summary::-webkit-details-marker { display: none; }
+.world-check-icon { font-size: 1rem; }
+.world-check-chip.verdict-allowed .world-check-icon { color: var(--ok); }
+.world-check-chip.verdict-allowed_with_cost .world-check-icon { color: #b07828; }
+.world-check-chip.verdict-out_of_world .world-check-icon { color: var(--danger); }
+.world-check-chip .world-check-details { margin-top: 0.4rem; padding: 0.5rem 0.65rem; border-radius: 8px; background: var(--surface-low); }

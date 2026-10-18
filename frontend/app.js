@@ -1266,6 +1266,8 @@ function renderMessages(items) {
     body.className = 'msg-body';
     if (item.role === 'assistant') {
       body.innerHTML = renderMarkdown(item.content);
+      const worldChip = buildWorldCheckChip(item.world_check);
+      if (worldChip) body.appendChild(worldChip);
       if (i === lastAssistantIndex && !pendingUserMessage) {
         const wrap = document.createElement('div');
         wrap.className = 'msg-regenerate-wrap';
@@ -2036,6 +2038,7 @@ composer.addEventListener('submit', async (e) => {
     shouldStickToBottom = true;
     await runStage('刷新历史', () => loadHistory());
     await runStage('渲染状态', () => renderState(data.state_snapshot || {}));
+    renderWorldCheck(data.world_check || null);
     await runStage('加载记忆', () => loadMemory());
     await runStage('渲染角色卡', () => renderCharacterCard(data.character_card || lastCharacterCard));
     await runStage('渲染调试信息', () => renderDebug(data.debug || null));
@@ -2139,6 +2142,270 @@ settingsBackdrop?.addEventListener('click', closeSettings);
   });
 })();
 
+// ── Threadloom Worlds: World Check + World Bible ───────────────────────────
+const worldCheckView = document.getElementById('worldCheckView');
+const worldBibleView = document.getElementById('worldBibleView');
+const worldBibleMeta = document.getElementById('worldBibleMeta');
+const worldBibleLockBtn = document.getElementById('worldBibleLockBtn');
+const worldBibleEditBtn = document.getElementById('worldBibleEditBtn');
+const worldBibleRebuildBtn = document.getElementById('worldBibleRebuildBtn');
+const worldBibleEditActions = document.getElementById('worldBibleEditActions');
+const worldBibleSaveBtn = document.getElementById('worldBibleSaveBtn');
+const worldBibleCancelBtn = document.getElementById('worldBibleCancelBtn');
+
+const WORLD_SECTION_LABELS = {
+  geography: 'Geography',
+  factions: 'Factions',
+  social_system: 'Social system',
+  tech_supernatural_limits: 'Tech & supernatural limits',
+  economy_resources: 'Economy & resources',
+  taboos: 'Taboos & laws',
+  era_feel: 'Era & feel',
+};
+const WORLD_SOURCE_LABELS = { card: 'card', inferred: 'Nemotron', user: 'you' };
+const WORLD_VERDICT_LABELS = {
+  allowed: 'In-world',
+  allowed_with_cost: 'Allowed, with a cost',
+  out_of_world: 'Out of world',
+};
+
+let worldBible = null;
+let worldBibleEditing = false;
+let lastWorldCheck = null;
+
+function worldEl(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined && text !== null) node.textContent = text;
+  return node;
+}
+
+function buildWorldCheckDetails(check) {
+  const box = worldEl('div', 'world-check-details');
+  const rows = [
+    ['Rule', check.rule],
+    ['Cost', check.verdict === 'allowed_with_cost' ? check.cost : ''],
+    ['Narrator hint', check.narrator_hint],
+  ];
+  for (const [label, value] of rows) {
+    if (!value) continue;
+    const row = worldEl('div', 'world-check-row');
+    row.appendChild(worldEl('span', 'world-check-key', label));
+    row.appendChild(worldEl('span', 'world-check-val', value));
+    box.appendChild(row);
+  }
+  const meta = [check.model ? check.model.split('/').pop() : '', check.latency_ms ? `${(check.latency_ms / 1000).toFixed(1)}s` : '']
+    .filter(Boolean).join(' · ');
+  if (meta) box.appendChild(worldEl('div', 'world-check-meta', meta));
+  return box;
+}
+
+// Per-message chip under an assistant reply. Collapsed by default.
+function buildWorldCheckChip(check) {
+  if (!check || !check.ran || !check.verdict) return null;
+  const details = worldEl('details', `world-check-chip verdict-${check.verdict}`);
+  const summary = worldEl('summary', '');
+  summary.appendChild(worldEl('span', 'material-symbols-outlined world-check-icon', check.verdict === 'allowed' ? 'check_circle' : (check.verdict === 'out_of_world' ? 'block' : 'balance')));
+  summary.appendChild(worldEl('span', '', `World Check · ${WORLD_VERDICT_LABELS[check.verdict] || check.verdict}`));
+  details.appendChild(summary);
+  details.appendChild(buildWorldCheckDetails(check));
+  return details;
+}
+
+function latestWorldCheckFromHistory(items) {
+  for (let idx = (items || []).length - 1; idx >= 0; idx--) {
+    const item = items[idx];
+    if (item && item.role === 'assistant') return item.world_check || null;
+  }
+  return null;
+}
+
+function renderWorldCheck(check) {
+  // A fresh turn result wins; otherwise read the latest reply in this session's history.
+  lastWorldCheck = (check && check.status) ? check : latestWorldCheckFromHistory(lastHistoryItems);
+  if (!worldCheckView) return;
+  worldCheckView.innerHTML = '';
+  const current = lastWorldCheck;
+  const title = worldEl('div', 'world-check-title', 'Last World Check');
+  worldCheckView.appendChild(title);
+  if (!current || !current.ran) {
+    let note = 'No check yet this session. Each turn, Nemotron tests your action against the World Bible.';
+    if (current && current.status && current.status.startsWith('skipped:no_world_bible')) note = 'No World Bible for this character yet.';
+    else if (current && current.status && current.status.startsWith('error')) note = 'Last check failed; the turn ran without it.';
+    worldCheckView.appendChild(worldEl('p', 'world-empty', note));
+    return;
+  }
+  const badge = worldEl('div', `world-verdict verdict-${current.verdict}`, WORLD_VERDICT_LABELS[current.verdict] || current.verdict);
+  worldCheckView.appendChild(badge);
+  worldCheckView.appendChild(buildWorldCheckDetails(current));
+}
+
+function renderWorldBible() {
+  if (!worldBibleView) return;
+  worldBibleView.innerHTML = '';
+  const bible = worldBible;
+  const hasBible = !!(bible && bible.sections);
+  if (worldBibleEditBtn) worldBibleEditBtn.hidden = !hasBible || worldBibleEditing;
+  if (worldBibleLockBtn) {
+    worldBibleLockBtn.hidden = !hasBible || worldBibleEditing;
+    worldBibleLockBtn.textContent = bible?.locked ? '已锁定 · 解锁' : '锁定';
+    worldBibleLockBtn.title = bible?.locked ? 'Locked: re-import will not overwrite it' : 'Lock so re-import keeps this bible';
+  }
+  if (worldBibleRebuildBtn) worldBibleRebuildBtn.hidden = worldBibleEditing;
+  if (worldBibleEditActions) worldBibleEditActions.hidden = !worldBibleEditing;
+  if (worldBibleMeta) {
+    if (!hasBible) {
+      worldBibleMeta.textContent = '';
+    } else {
+      const counts = bible.counts || {};
+      const parts = [`${counts.card || 0} from card`, `${counts.inferred || 0} by Nemotron`];
+      if (counts.user) parts.push(`${counts.user} by you`);
+      if (bible.setting_type) parts.push(bible.setting_type);
+      worldBibleMeta.textContent = parts.join(' · ');
+    }
+  }
+  if (!hasBible) {
+    worldBibleView.appendChild(worldEl('p', 'world-empty', '还没有世界设定。导入角色卡时会自动生成，也可以点“重新生成”。'));
+    return;
+  }
+  for (const [key, label] of Object.entries(WORLD_SECTION_LABELS)) {
+    const entries = Array.isArray(bible.sections[key]) ? bible.sections[key] : [];
+    if (!entries.length && !worldBibleEditing) continue;
+    const group = worldEl('details', 'world-section');
+    group.dataset.section = key;
+    if (worldBibleEditing || key === 'taboos' || key === 'tech_supernatural_limits') group.open = true;
+    group.appendChild(worldEl('summary', 'world-section-title', `${label} (${entries.length})`));
+    const list = worldEl('div', 'world-entries');
+    for (const entry of entries) list.appendChild(buildWorldEntry(entry));
+    group.appendChild(list);
+    if (worldBibleEditing) {
+      const addBtn = worldEl('button', 'subtle-btn world-add-btn', '+ 添加一条');
+      addBtn.type = 'button';
+      addBtn.addEventListener('click', () => list.appendChild(buildWorldEntry({ text: '', source: 'user' }, { focus: true })));
+      group.appendChild(addBtn);
+    }
+    worldBibleView.appendChild(group);
+  }
+}
+
+function buildWorldEntry(entry, { focus = false } = {}) {
+  const row = worldEl('div', `world-entry source-${entry.source || 'inferred'}`);
+  if (entry.id) row.dataset.id = entry.id;
+  const tag = worldEl('span', 'world-source', WORLD_SOURCE_LABELS[entry.source] || entry.source || '');
+  if (entry.edited) tag.textContent += ' · edited';
+  if (worldBibleEditing) {
+    const area = worldEl('textarea', 'world-entry-input');
+    area.rows = 2;
+    area.maxLength = 600;
+    area.value = entry.text || '';
+    const del = worldEl('button', 'icon-btn subtle world-del-btn');
+    del.type = 'button';
+    del.title = '删除';
+    del.appendChild(worldEl('span', 'material-symbols-outlined', 'delete'));
+    del.addEventListener('click', () => row.remove());
+    row.appendChild(tag);
+    row.appendChild(area);
+    row.appendChild(del);
+    if (focus) setTimeout(() => area.focus(), 0);
+  } else {
+    row.appendChild(tag);
+    row.appendChild(worldEl('span', 'world-entry-text', entry.text || ''));
+  }
+  return row;
+}
+
+function collectWorldBibleEdits() {
+  const sections = {};
+  for (const key of Object.keys(WORLD_SECTION_LABELS)) sections[key] = [];
+  worldBibleView?.querySelectorAll('.world-section').forEach(group => {
+    const key = group.dataset.section;
+    group.querySelectorAll('.world-entry').forEach(row => {
+      const text = row.querySelector('.world-entry-input')?.value.trim() || '';
+      if (!text) return;
+      sections[key].push(row.dataset.id ? { id: row.dataset.id, text } : { text });
+    });
+  });
+  return sections;
+}
+
+async function loadWorldBible() {
+  try {
+    const data = await apiJson('/api/world-bible');
+    worldBible = data.world_bible || null;
+  } catch (err) {
+    console.warn('world bible load failed', err);
+    worldBible = null;
+  }
+  if (!worldBibleEditing) renderWorldBible();
+}
+
+worldBibleEditBtn?.addEventListener('click', () => {
+  worldBibleEditing = true;
+  renderWorldBible();
+});
+
+worldBibleCancelBtn?.addEventListener('click', () => {
+  worldBibleEditing = false;
+  renderWorldBible();
+});
+
+worldBibleSaveBtn?.addEventListener('click', async () => {
+  worldBibleSaveBtn.disabled = true;
+  try {
+    const data = await apiJson('/api/world-bible', {
+      method: 'POST',
+      body: JSON.stringify({ sections: collectWorldBibleEdits() }),
+    });
+    worldBible = data.world_bible || worldBible;
+    worldBibleEditing = false;
+    renderWorldBible();
+    setStatus('世界设定已保存并锁定', 'ok');
+  } catch (err) {
+    setStatus(`保存失败：${err.message}`, 'error');
+  } finally {
+    worldBibleSaveBtn.disabled = false;
+  }
+});
+
+worldBibleLockBtn?.addEventListener('click', async () => {
+  worldBibleLockBtn.disabled = true;
+  try {
+    const data = await apiJson('/api/world-bible', {
+      method: 'POST',
+      body: JSON.stringify({ locked: !worldBible?.locked }),
+    });
+    worldBible = data.world_bible || worldBible;
+    renderWorldBible();
+  } catch (err) {
+    setStatus(`操作失败：${err.message}`, 'error');
+  } finally {
+    worldBibleLockBtn.disabled = false;
+  }
+});
+
+worldBibleRebuildBtn?.addEventListener('click', async () => {
+  const warning = worldBible?.locked
+    ? '世界设定已锁定。重新生成会丢弃你的编辑，并调用一次 Nemotron Ultra。继续？'
+    : '用 Nemotron Ultra 重新生成世界设定（约 10 秒）？';
+  if (!window.confirm(warning)) return;
+  worldBibleRebuildBtn.disabled = true;
+  setStatus('正在生成世界设定...', 'working');
+  try {
+    const data = await apiJson('/api/world-bible/rebuild', {
+      method: 'POST',
+      body: JSON.stringify({ force: true }),
+    });
+    worldBible = data.world_bible || null;
+    renderWorldBible();
+    const llm = worldBible?.status?.llm || '';
+    setStatus(llm === 'ok' ? '世界设定已更新' : `已生成（仅卡片内容，${llm || 'no LLM'}）`, llm === 'ok' ? 'ok' : 'info');
+  } catch (err) {
+    setStatus(`生成失败：${err.message}`, 'error');
+  } finally {
+    worldBibleRebuildBtn.disabled = false;
+  }
+});
+
 function openDebugPanel() {
   if (debugFloatPanel) {
     debugFloatPanel.dataset.open = 'true';
@@ -2146,6 +2413,8 @@ function openDebugPanel() {
   }
   if (debugBackdrop) debugBackdrop.hidden = false;
   loadMemory();
+  renderWorldCheck();
+  loadWorldBible();
 }
 
 function closeDebugPanel() {

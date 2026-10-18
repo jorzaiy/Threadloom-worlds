@@ -77,6 +77,10 @@ WORLD_BIBLE_VERSION = 1
 WORLD_BUILDER_ROLE = 'world_builder'
 SOURCE_CARD = 'card'
 SOURCE_INFERRED = 'inferred'
+SOURCE_USER = 'user'
+SOURCES = (SOURCE_CARD, SOURCE_INFERRED, SOURCE_USER)
+EDIT_ENTRY_TEXT_LIMIT = 600
+EDIT_MAX_ENTRIES_PER_SECTION = 40
 SECTIONS: tuple[str, ...] = (
     'geography',
     'factions',
@@ -763,6 +767,88 @@ def rebuild_world_bible(
     bible = build_world_bible(core, lorebook, use_llm=use_llm, use_tavily=use_tavily)
     atomic_write_json(path, bible)
     return _report(path, bible, action='rebuilt')
+
+
+def load_world_bible(source_root: Path | None = None) -> dict:
+    root = source_root or character_source_base()
+    return _read_json(root / WORLD_BIBLE_FILE)
+
+
+def _count_sources(sections: dict[str, list[dict]]) -> dict[str, int]:
+    return {
+        source: sum(1 for items in sections.values() for item in items if item.get('source') == source)
+        for source in SOURCES
+    }
+
+
+def save_world_bible_edits(
+    sections: Any = None,
+    *,
+    locked: Any = None,
+    source_root: Path | None = None,
+) -> dict:
+    """Apply user edits from the UI. Raises ``ValueError`` on bad input.
+
+    * Entries keep their ``source``; an edited text marks ``edited: true``.
+      Edits to a ``card`` entry are allowed (the user owns the card) and the
+      entry stays canon. New entries get ``source: "user"`` (also canon).
+    * Saving sections locks the bible unless ``locked`` is given explicitly,
+      so a later import/rebuild cannot silently overwrite curated edits.
+    """
+    root = source_root or character_source_base()
+    path = root / WORLD_BIBLE_FILE
+    bible = _read_json(path)
+    if not bible:
+        raise ValueError('no world bible for the active character; import a card first')
+    if sections is not None:
+        if not isinstance(sections, dict):
+            raise ValueError('sections must be an object')
+        unknown = [name for name in sections if name not in SECTIONS]
+        if unknown:
+            raise ValueError(f'unknown sections: {", ".join(sorted(unknown))}')
+        previous = bible.get('sections') if isinstance(bible.get('sections'), dict) else {}
+        prev_by_id = {
+            str(item.get('id')): item
+            for items in previous.values() if isinstance(items, list)
+            for item in items if isinstance(item, dict) and item.get('id')
+        }
+        cleaned = empty_sections()
+        for name in SECTIONS:
+            raw_entries = sections.get(name, previous.get(name, []))
+            if not isinstance(raw_entries, list):
+                raise ValueError(f'section {name} must be a list')
+            if len(raw_entries) > EDIT_MAX_ENTRIES_PER_SECTION:
+                raise ValueError(f'section {name} has more than {EDIT_MAX_ENTRIES_PER_SECTION} entries')
+            for raw in raw_entries:
+                if isinstance(raw, str):
+                    raw = {'text': raw}
+                if not isinstance(raw, dict):
+                    raise ValueError(f'section {name} entries must be objects')
+                text = ' '.join(str(raw.get('text', '') or '').split())
+                if not text:
+                    continue
+                if len(text) > EDIT_ENTRY_TEXT_LIMIT:
+                    raise ValueError(f'entry text longer than {EDIT_ENTRY_TEXT_LIMIT} characters')
+                prev = prev_by_id.get(str(raw.get('id') or ''))
+                if prev:
+                    entry = dict(prev)
+                    if text != prev.get('text'):
+                        entry['text'] = text
+                        entry['edited'] = True
+                else:
+                    entry = {'id': _stable_id('user', f'{name}:{text}'), 'title': '', 'text': text, 'source': SOURCE_USER}
+                if 'title' in raw:
+                    entry['title'] = _compact(raw.get('title', '') or '', 60)
+                cleaned[name].append(entry)
+        bible['sections'] = cleaned
+        bible['counts'] = _count_sources(cleaned)
+        bible['edited_at'] = datetime.now(timezone.utc).isoformat(timespec='seconds')
+        if locked is None:
+            locked = True
+    if locked is not None:
+        bible['locked'] = bool(locked)
+    atomic_write_json(path, bible)
+    return bible
 
 
 def safe_rebuild_world_bible(source_root: Path | None = None, **kwargs: Any) -> dict:

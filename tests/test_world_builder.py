@@ -453,3 +453,73 @@ def test_world_builder_retries_without_response_format(monkeypatch, nebius_key):
     assert len(calls) == 2 and 'response_format' not in calls[1]
     assert usage['response_format_fallback'] is True
     assert 'duration_ms' in usage
+
+
+# ── UI edits (save_world_bible_edits) ───────────────────────────────────────
+
+def _seed_bible(root):
+    bible = {
+        'version': 1, 'locked': False,
+        'sections': {**wb.empty_sections(),
+                     'taboos': [{'id': 'card-1', 'title': 'River', 'text': 'Never pull the drowned out after dark.', 'source': 'card'}],
+                     'geography': [{'id': 'inf-1', 'title': '', 'text': 'Camps lie north.', 'source': 'inferred'}]},
+        'counts': {'card': 1, 'inferred': 1},
+    }
+    (root / wb.WORLD_BIBLE_FILE).write_text(json.dumps(bible), encoding='utf-8')
+
+
+def test_save_edits_keeps_sources_marks_edited_and_locks(tmp_path):
+    _seed_bible(tmp_path)
+    out = wb.save_world_bible_edits({
+        'taboos': [{'id': 'card-1', 'text': 'Never pull the drowned out after sundown.'}, {'text': 'No fires on the ferry.'}],
+        'geography': [],
+    }, source_root=tmp_path)
+    taboos = out['sections']['taboos']
+    assert taboos[0]['source'] == 'card' and taboos[0]['edited'] is True and taboos[0]['title'] == 'River'
+    assert taboos[1]['source'] == 'user' and taboos[1]['id'].startswith('user-')
+    assert out['sections']['geography'] == []
+    assert out['counts'] == {'card': 1, 'inferred': 0, 'user': 1}
+    assert out['locked'] is True
+    assert json.loads((tmp_path / wb.WORLD_BIBLE_FILE).read_text(encoding='utf-8'))['locked'] is True
+
+
+def test_save_edits_unchanged_text_not_marked_and_omitted_sections_kept(tmp_path):
+    _seed_bible(tmp_path)
+    out = wb.save_world_bible_edits({'taboos': [{'id': 'card-1', 'text': 'Never pull the drowned out after dark.'}]}, source_root=tmp_path)
+    assert 'edited' not in out['sections']['taboos'][0]
+    assert out['sections']['geography'][0]['id'] == 'inf-1'
+
+
+def test_lock_toggle_only(tmp_path):
+    _seed_bible(tmp_path)
+    assert wb.save_world_bible_edits(locked=True, source_root=tmp_path)['locked'] is True
+    out = wb.save_world_bible_edits(locked=False, source_root=tmp_path)
+    assert out['locked'] is False and out['sections']['taboos'][0]['id'] == 'card-1'
+
+
+@pytest.mark.parametrize('sections,msg', [
+    ({'magic': []}, 'unknown sections'),
+    ({'taboos': 'x'}, 'must be a list'),
+    ({'taboos': [{'text': 'x' * 601}]}, 'longer than'),
+    ({'taboos': [{'text': f'r{i}'} for i in range(41)]}, 'more than'),
+])
+def test_save_edits_rejects_bad_input(tmp_path, sections, msg):
+    _seed_bible(tmp_path)
+    with pytest.raises(ValueError, match=msg):
+        wb.save_world_bible_edits(sections, source_root=tmp_path)
+
+
+def test_save_edits_without_bible_raises(tmp_path):
+    with pytest.raises(ValueError, match='no world bible'):
+        wb.save_world_bible_edits({'taboos': []}, source_root=tmp_path)
+
+
+def test_locked_user_edits_survive_rebuild(tmp_path, monkeypatch):
+    (tmp_path / 'character-data.json').write_text(json.dumps(CORE, ensure_ascii=False), encoding='utf-8')
+    (tmp_path / 'lorebook.json').write_text(json.dumps(LOREBOOK, ensure_ascii=False), encoding='utf-8')
+    monkeypatch.delenv('NEBIUS_API_KEY', raising=False)
+    wb.rebuild_world_bible(tmp_path, use_tavily=False)
+    wb.save_world_bible_edits({'era_feel': [{'text': 'Rain every evening.'}]}, source_root=tmp_path)
+    report = wb.rebuild_world_bible(tmp_path, use_tavily=False)
+    assert report['action'] == 'kept_locked'
+    assert wb.load_world_bible(tmp_path)['sections']['era_feel'][0]['text'] == 'Rain every evening.'
