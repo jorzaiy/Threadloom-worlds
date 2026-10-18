@@ -41,24 +41,34 @@ import json
 import logging
 import os
 import re
+import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError
+
+# The backend modules are written as flat scripts (``from model_client import
+# ...``), so make ``backend/`` importable both for ``python backend/world_builder.py``
+# and ``python -m backend.world_builder`` from the repo root.
+_BACKEND_DIR = str(Path(__file__).resolve().parent)
+if _BACKEND_DIR not in sys.path:
+    sys.path.insert(0, _BACKEND_DIR)
 
 try:
-    from .atomic_io import atomic_write_json
-    from .character_assets import character_source_base, lorebook_path
-    from .llm_manager import get_role_runtime
-    from .local_model_client import parse_json_response
-    from .model_client import call_model
-    from .model_config import nebius_api_key_configured, resolve_provider_model
-except ImportError:
     from atomic_io import atomic_write_json
     from character_assets import character_source_base, lorebook_path
     from llm_manager import get_role_runtime
     from local_model_client import parse_json_response
     from model_client import call_model
     from model_config import nebius_api_key_configured, resolve_provider_model
+except ModuleNotFoundError as _err:  # pragma: no cover - environment problem
+    if __name__ == '__main__' and _err.name and not Path(_BACKEND_DIR, f'{_err.name}.py').exists():
+        raise SystemExit(
+            f'world_builder: missing Python dependency {_err.name!r}. '
+            'Install the backend requirements first: pip install -r requirements.txt'
+        ) from _err
+    raise
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +113,7 @@ SECTION_KEYWORDS: dict[str, tuple[str, ...]] = {
     'tech_supernatural_limits': (
         '科技', '技术', '魔法', '法术', '异能', '修炼', '修为', '灵力', '境界', '功法', '武功', '内力', '超自然', '能力体系', '代价',
         'technology', 'magic', 'spell', 'mana', 'cultivation', 'supernatural', 'power system', 'tech level',
+        'charm', 'sorcery', 'witchcraft', 'weapon', 'firearm', 'gunpowder',
     ),
     'economy_resources': (
         '经济', '货币', '资源', '贸易', '商会', '银两', '灵石', '物资', '粮食', '市场', '税',
@@ -204,11 +215,31 @@ def _stable_id(prefix: str, text: str) -> str:
     return f"{prefix}-{hashlib.md5(text.encode('utf-8')).hexdigest()[:10]}"
 
 
+_SIMILARITY_STOPWORDS = frozenset(
+    'the a an and or of to in on at by for with from is are was were be been it its this that as into '
+    'only when than then them they their there each any all no not but who which what can has have'.split()
+)
+
+
 def _bigrams(text: str) -> set[str]:
-    clean = re.sub(r'[\s\W_]+', '', str(text or '').lower())
-    if len(clean) < 2:
-        return {clean} if clean else set()
-    return {clean[i:i + 2] for i in range(len(clean) - 1)}
+    """Similarity tokens: CJK character bigrams plus Latin content words.
+
+    Character bigrams work for Chinese but are useless for English (every
+    English text shares bigrams like "th", "er"), which made the duplicate
+    check reject almost every inferred entry on English cards. Latin script is
+    therefore compared by content words instead.
+    """
+    lower = str(text or '').lower()
+    tokens: set[str] = set()
+    cjk = re.sub(r'[^\u3400-\u9fff]+', '', lower)
+    if len(cjk) == 1:
+        tokens.add(cjk)
+    tokens.update(cjk[i:i + 2] for i in range(len(cjk) - 1))
+    tokens.update(
+        word for word in re.findall(r"[a-z0-9][a-z0-9'\-]+", lower)
+        if len(word) >= 3 and word not in _SIMILARITY_STOPWORDS
+    )
+    return tokens
 
 
 def _similarity(a: str, b: str) -> float:
@@ -255,6 +286,14 @@ def _is_meta_entry(entry: dict) -> bool:
     return any(marker in haystack for marker in META_MARKERS)
 
 
+def _keyword_hits(word: str, text: str) -> bool:
+    if word.isascii():
+        # Whole-word match for English ('caste' must not match 'caster'),
+        # tolerating a plural suffix ('faction' -> 'factions').
+        return re.search(rf'\b{re.escape(word)}(?:s|es)?\b', text) is not None
+    return word in text
+
+
 def classify_section(title: str, content: str, entry_type: str = '') -> str | None:
     """Pick the best world-bible section for a lorebook entry, or ``None``."""
     title_l = str(title or '').lower()
@@ -262,9 +301,9 @@ def classify_section(title: str, content: str, entry_type: str = '') -> str | No
     scores: dict[str, int] = {name: 0 for name in SECTIONS}
     for section, words in SECTION_KEYWORDS.items():
         for word in words:
-            if word in title_l:
+            if _keyword_hits(word, title_l):
                 scores[section] += 3
-            if word in head_l:
+            if _keyword_hits(word, head_l):
                 scores[section] += 1
     mapped = ENTRY_TYPE_SECTION.get(str(entry_type or '').strip())
     if mapped:
@@ -568,13 +607,35 @@ def _build_llm_prompt(core: dict, card_sections: dict[str, list[dict]], research
     return prompt
 
 
+def _is_response_format_rejection(err: Exception) -> bool:
+    if not isinstance(err, HTTPError) or err.code not in {400, 415, 422}:
+        return False
+    try:
+        body = err.read().decode('utf-8', 'replace').lower()
+    except Exception:
+        body = ''
+    return 'response_format' in body or 'json_object' in body or 'json mode' in body or not body
+
+
 def _call_world_builder_llm(system_prompt: str, user_prompt: str) -> tuple[str, dict]:
     runtime = get_role_runtime(WORLD_BUILDER_ROLE)
     if runtime['provider'] != 'llm':
         raise RuntimeError(f'{WORLD_BUILDER_ROLE} is not configured for llm provider')
     model_cfg = dict(resolve_provider_model(runtime['model_role']))
     model_cfg['stream'] = False
-    reply, usage = call_model(model_cfg, system_prompt, user_prompt)
+    started = time.monotonic()
+    try:
+        reply, usage = call_model(model_cfg, system_prompt, user_prompt)
+    except HTTPError as err:
+        # Some OpenAI-compatible endpoints reject response_format=json_object;
+        # the system prompt already demands bare JSON, so retry without it.
+        if not model_cfg.get('response_format') or not _is_response_format_rejection(err):
+            raise
+        logger.info('world_builder: endpoint rejected response_format; retrying without it')
+        model_cfg.pop('response_format', None)
+        reply, usage = call_model(model_cfg, system_prompt, user_prompt)
+        usage['response_format_fallback'] = True
+    usage['duration_ms'] = int((time.monotonic() - started) * 1000)
     usage['role'] = WORLD_BUILDER_ROLE
     usage['model_role'] = runtime['model_role']
     return reply, usage
@@ -583,6 +644,11 @@ def _call_world_builder_llm(system_prompt: str, user_prompt: str) -> tuple[str, 
 def _infer_with_llm(core: dict, card_sections: dict[str, list[dict]], research: list[dict]) -> tuple[dict, str, dict]:
     """Return ``(inferred_sections, setting_type, usage)``; raises on failure."""
     reply, usage = _call_world_builder_llm(WORLD_BUILDER_SYSTEM, _build_llm_prompt(core, card_sections, research))
+    usage = usage if isinstance(usage, dict) else {}
+    if usage.get('finish_reason') == 'length':
+        # Reasoning models can spend the whole budget thinking; a truncated
+        # reply is not trustworthy JSON even if it happens to parse.
+        raise ValueError(f"LLM output truncated (finish_reason=length, output_tokens={usage.get('output_tokens')})")
     if not str(reply or '').strip():
         raise ValueError('empty LLM response')
     payload = parse_json_response(reply)
@@ -595,7 +661,7 @@ def _infer_with_llm(core: dict, card_sections: dict[str, list[dict]], research: 
     if not sections:
         raise ValueError('LLM response has no sections')
     setting_type = _compact(payload.get('setting_type', '') or '', 40)
-    return sections, setting_type, usage if isinstance(usage, dict) else {}
+    return sections, setting_type, usage
 
 
 # ---------------------------------------------------------------------------
@@ -614,6 +680,7 @@ def build_world_bible(core: dict, lorebook: dict, *, use_llm: bool = True, use_t
     inferred: dict = {}
     setting_type = ''
     model_id = ''
+    llm_usage: dict[str, Any] = {}
     if not use_llm:
         status['llm'] = 'skipped:disabled'
     elif not nebius_api_key_configured():
@@ -623,6 +690,11 @@ def build_world_bible(core: dict, lorebook: dict, *, use_llm: bool = True, use_t
         try:
             inferred, setting_type, usage = _infer_with_llm(core, card_sections, research)
             model_id = str(usage.get('model', '') or '')
+            llm_usage = {
+                key: usage[key]
+                for key in ('input_tokens', 'output_tokens', 'reasoning_tokens', 'duration_ms', 'response_format_fallback')
+                if key in usage
+            }
             status['llm'] = 'ok'
         except Exception as err:
             logger.warning('world_builder: inference failed, keeping card-only world bible: %s', err)
@@ -638,6 +710,7 @@ def build_world_bible(core: dict, lorebook: dict, *, use_llm: bool = True, use_t
         'locked': False,
         'setting_type': setting_type,
         'models': {'inferred': model_id},
+        'llm_usage': llm_usage,
         'status': status,
         'sections': sections,
         'research': [{'title': note.get('title', ''), 'url': note.get('url', '')} for note in research],

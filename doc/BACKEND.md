@@ -30,6 +30,11 @@
 - `summary_updater.py`：围绕当前 state + 最近 turn 生成 session-local summary；当前主要作为写回 / 调试产物，不再进入 narrator 主输入
 - `summary_chunks.py`：固定 12 轮分段 dense summary；旧 chunk 不重写，供 selector 在 12 轮外检索回流；chunk 保存 `time_start/time_end` 作为窗口时间范围；`actors_mentioned` 会过滤非人物/抽象话题，并对源窗口中已知的主角名做保守一致性修复，避免 selector 以后按伪 actor 或主角错字召回。统一记忆事务模式下，新 chunk 使用 heuristic 生成；legacy LLM chunk 若返回 `finish_reason=length` 会降级 heuristic 并记录拒收原因
 - `lorebook_distiller.py`：角色卡导入 / 手动重建时把 `lorebook.json` 固化为 `lorebook-foundation.json` 与 `lorebook-index.json`
+- `world_builder.py`：在 lorebook 蒸馏之后生成 `world-bible.json`（card 条目确定性抽取 + Nemotron Ultra 推断补全，card 永远优先）。需要 `NEBIUS_API_KEY`；没有 key 时只写 card 条目。手动重建（与 `lorebook_distiller.py` 相同的调用方式，先 `pip install -r requirements.txt`）：
+  ```bash
+  python backend/world_builder.py --source-root <character source dir> [--force] [--no-llm] [--no-tavily]
+  # 或：python -m backend.world_builder --help
+  ```
 - `persona_updater.py` / `persona_runtime.py`：legacy session-local persona 流转、重要度计数、近期观察沉淀与展示骨架；observation 只来自 assistant 叙事中与 NPC 相关的短片段，不把用户 prompt 原文固化为 NPC 事实；抽象话题和结构标签不会生成 persona seed。统一记忆事务模式下，在线主链跳过该 display-name keyed 写回，改由 `state_keeper.persona_patches -> state.actor_persona_hooks` 维护 actor-id keyed 表达钩子，避免 persona updater 另跑一套历史启发式写回污染同一轮记忆
 - `arbiter_runtime.py` / `arbiter_state.py`：最小 arbiter 主链与状态合并
 - `turn_analyzer.py`：用户输入 + scene signal 的统一分析层

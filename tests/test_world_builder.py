@@ -367,3 +367,89 @@ def test_tavily_called_for_historical_setting(monkeypatch):
     assert captured['method'] == 'POST'
     assert captured['headers']['Authorization'] == 'Bearer tvly-test'
     assert '民国二十年的上海滩' in captured['body']['query']
+
+
+# ---------------------------------------------------------------------------
+# English cards (regressions found in the 2026-10-18 live run)
+# ---------------------------------------------------------------------------
+
+EN_CARD_SECTIONS = {
+    'geography': [{
+        'id': 'card-1', 'title': 'Geography: the Greywater ford', 'source': 'card', 'source_entry_ids': ['1'],
+        'text': "The Greywater River is crossable only at Emberwell's ford, and only when the water is low. "
+                'A rope ferry runs when the ford floods, at two silver bits per head.',
+    }],
+    'tech_supernatural_limits': [{
+        'id': 'card-2', 'title': 'World rule: technology', 'source': 'card', 'source_entry_ids': ['5'],
+        'text': 'There is no gunpowder in this world. Firearms do not exist.',
+    }],
+}
+
+
+def test_english_inferred_entries_are_not_flagged_as_duplicates():
+    inferred = {
+        'geography': [
+            # New detail that shares common English letters/bigrams but no content.
+            {'title': 'Town layout', 'text': 'Emberwell clusters on the south bank around the inn; mud streets radiate from the stone ramp.'},
+            # A genuine restatement of the card entry.
+            {'title': 'Ford', 'text': "The Greywater River is crossable only at Emberwell's ford when the water is low; the rope ferry costs two silver bits per head."},
+        ],
+        'tech_supernatural_limits': [
+            {'title': 'Muskets', 'text': 'Muskets are carried by the town watch.'},
+        ],
+    }
+    merged, dropped = wb.merge_world_bible(EN_CARD_SECTIONS, inferred)
+    kept = [item['title'] for item in merged['geography'] if item['source'] == 'inferred']
+    assert kept == ['Town layout']
+    reasons = {item['title']: item['reason'] for item in dropped}
+    assert reasons['Ford'] == 'duplicates_card'
+    assert 'Muskets' not in reasons or reasons['Muskets'] != 'duplicates_card'
+
+
+def test_english_keywords_match_whole_words():
+    # 'caster' must not count as the social keyword 'caste'.
+    section = wb.classify_section(
+        'World rule: hedge-craft',
+        'Magic is rare and costly. Small charms of warding cost the caster blood and days of fever.',
+    )
+    assert section == 'tech_supernatural_limits'
+    assert wb.classify_section('Faction: the Ferrymen', 'The ferrymen are a guild that controls the landings.') == 'factions'
+
+
+def test_truncated_llm_output_degrades_to_card_only(monkeypatch, nebius_key):
+    reply = _llm_reply({'geography': [{'title': 'x', 'text': '苍山脚下有三座驿站。'}]})
+    monkeypatch.setattr(wb, '_call_world_builder_llm', lambda system, user: (reply, {'finish_reason': 'length', 'output_tokens': 8000}))
+    bible = wb.build_world_bible(CORE, LOREBOOK, use_tavily=False)
+    assert bible['status']['llm'].startswith('error:ValueError: LLM output truncated')
+    assert bible['counts']['inferred'] == 0
+
+
+def test_world_builder_retries_without_response_format(monkeypatch, nebius_key):
+    import io
+    from urllib.error import HTTPError
+
+    import llm_manager
+    import model_config
+
+    monkeypatch.setattr(llm_manager, 'get_role_runtime', lambda role: {'provider': 'llm', 'model_role': role})
+    monkeypatch.setattr(wb, 'get_role_runtime', lambda role: {'provider': 'llm', 'model_role': role})
+    monkeypatch.setattr(wb, 'resolve_provider_model', lambda role: {
+        'provider': {'baseUrl': 'https://api.tokenfactory.nebius.com/v1', 'apiKey': 'k'},
+        'model': {'id': model_config.NEMOTRON_ULTRA_MODEL},
+        'temperature': 0.4, 'max_output_tokens': 8000, 'stream': False,
+        'response_format': {'type': 'json_object'},
+    })
+    calls = []
+
+    def _fake_call_model(config, system, user):
+        calls.append(dict(config))
+        if config.get('response_format'):
+            raise HTTPError('u', 400, 'Bad Request', None, io.BytesIO(b'{"error": "response_format json_object is not supported"}'))
+        return '{"sections": {}}', {'model': config['model']['id']}
+
+    monkeypatch.setattr(wb, 'call_model', _fake_call_model)
+    reply, usage = wb._call_world_builder_llm('sys', 'user')
+    assert reply == '{"sections": {}}'
+    assert len(calls) == 2 and 'response_format' not in calls[1]
+    assert usage['response_format_fallback'] is True
+    assert 'duration_ms' in usage
