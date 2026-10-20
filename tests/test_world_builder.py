@@ -732,3 +732,16 @@ def test_instruction_tagline_is_not_era_feel():
     core = {'coreDescription': {'tagline': '[Scene Rules: 1. 神偷 - IS a random 土著NPC. NOT 玩家/异人]'}}
     sections = wb.extract_card_sections(core, {'entries': []})
     assert sections['era_feel'] == []
+
+
+def test_long_card_entry_is_split_not_clipped_and_personas_skipped():
+    content = '<势力>\n' + '\n\n'.join(
+        f'{name}:\n定位:' + ''.join(f'{name}第{k}条门规各不相同。' for k in range(12)) for name in ('青龙堂', '白虎堂', '朱雀堂', '玄武堂')
+    ) + '\n\n圣子·刑玦\n形象: 银发.\n性格: 狂信.\n</势力>'
+    lorebook = {'entries': [{'id': '9', 'title': '江湖势力', 'content': content, 'entryType': 'faction'}]}
+    sections = wb.extract_card_sections({}, lorebook)
+    texts = [item['text'] for item in sections['factions']]
+    assert len(texts) == 4
+    assert all(len(t) <= wb.CARD_ENTRY_TEXT_LIMIT for t in texts)
+    assert not any('刑玦' in t for t in texts)
+    assert not any('<势力>' in t for t in texts)

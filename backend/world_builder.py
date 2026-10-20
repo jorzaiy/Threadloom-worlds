@@ -92,7 +92,7 @@ SECTIONS: tuple[str, ...] = (
     'taboos',
     'era_feel',
 )
-MAX_CARD_ENTRIES_PER_SECTION = 12
+MAX_CARD_ENTRIES_PER_SECTION = 60
 MAX_INFERRED_ENTRIES_PER_SECTION = 4
 # The sections that give a scene its texture get more room.
 MAX_INFERRED_BY_SECTION: dict[str, int] = {
@@ -429,6 +429,51 @@ def _constraint_sentences(text: str, limit: int = 3) -> list[str]:
     return out
 
 
+CHARACTER_PROFILE_MARKERS = ('外貌', '性格', '形象', '年龄', '外在:', '外在：', '武器:', '武器：', '口头禅', '身材')
+_XML_WRAPPER = re.compile(r'^\s*<[^<>\n]{1,40}>\s*|\s*</[^<>\n]{1,40}>\s*$')
+_BLOCK_HEADING = re.compile(r'^\s*(?:[-*#]\s*)?(?:【([^】]{1,24})】|([^:：\s【][^:：]{0,15})[:：]\s*$)')
+
+
+def _is_character_profile(block: str) -> bool:
+    """A persona block (looks, temper, weapon) belongs to the NPC system, not the world bible."""
+    if any(m in block for m in NPC_SECRET_MARKERS):
+        return True
+    # Roster lines like '二."毒蛇"·莫干' or '圣子·刑玦' open a person's profile.
+    if re.match(r'\s*(?:[一二三四五六七八九十\d]+[.、．]\s*)?["“「][^"”」]{1,8}["”」]\s*·', block):
+        return True
+    if re.search(r'(^|\n)\s*(?:[-*]\s*|\d+[.、]\s*)?(外貌|性格|形象|外在)\s*[:：]', block):
+        return True
+    return sum(1 for m in CHARACTER_PROFILE_MARKERS if m in block) >= 2
+
+
+def _split_lore_blocks(content: str, limit: int = CARD_ENTRY_TEXT_LIMIT) -> list[tuple[str, str]]:
+    """Split a lorebook entry into (heading, text) blocks that each fit ``limit`` without truncation."""
+    text = _XML_WRAPPER.sub('', str(content or '').strip())
+    raw_blocks = [b.strip() for b in re.split(r'\n\s*\n', text) if b.strip()]
+    blocks: list[str] = []
+    for block in raw_blocks:
+        if blocks and len(blocks[-1]) < 60 and len(blocks[-1]) + len(block) <= limit:
+            blocks[-1] = f'{blocks[-1]}\n{block}'
+        else:
+            blocks.append(block)
+    out: list[tuple[str, str]] = []
+    for block in blocks:
+        lines = [line for line in block.splitlines() if line.strip()]
+        first = _BLOCK_HEADING.match(lines[0]) if lines else None
+        heading = (first.group(1) or first.group(2)).strip() if first else ''
+        chunk: list[str] = []
+        size = 0
+        for line in lines:
+            if chunk and size + len(line) + 1 > limit:
+                out.append((heading, '\n'.join(chunk)))
+                chunk, size = [], 0
+            chunk.append(line[:limit])
+            size += len(line) + 1
+        if chunk:
+            out.append((heading, '\n'.join(chunk)))
+    return out
+
+
 def extract_card_sections(core: dict, lorebook: dict) -> dict[str, list[dict]]:
     """Build card-sourced entries from character core + normalized lorebook."""
     sections = empty_sections()
@@ -457,15 +502,25 @@ def extract_card_sections(core: dict, lorebook: dict) -> dict[str, list[dict]]:
 
     for entry in _enabled_lorebook_entries(lorebook):
         entry_type = str(entry.get('entryType', '') or '').strip()
-        if entry_type == 'npc' or _is_meta_entry(entry):
-            continue
         title = str(entry.get('title', '') or entry.get('name', '') or '').strip()
-        content = str(entry.get('content', '') or '')
-        section = classify_section(title, content, entry_type)
-        if section is None:
+        if entry_type in {'npc', 'cast'} or title.lower().startswith('npc') or _is_meta_entry(entry):
             continue
-        add(section, title or section, content, [entry['id']])
-        if section != 'taboos':
+        content = str(entry.get('content', '') or '')
+        entry_section = classify_section(title, content, entry_type)
+        if entry_section is None:
+            continue
+        # Keep the whole entry: split into blocks instead of clipping at the limit.
+        for heading, block in _split_lore_blocks(content):
+            if _is_character_profile(block):
+                continue
+            section = classify_section(heading or title, block, entry_type) or entry_section
+            if '关系' in heading and section == 'era_feel':
+                section = 'factions'
+            if section == 'taboos' and not _is_prohibition(block):
+                section = entry_section if entry_section != 'taboos' else 'era_feel'
+            label = f'{title} · {heading}' if heading and heading not in title else (title or section)
+            add(section, label, block, [entry['id']])
+        if entry_section != 'taboos':
             for sentence in _constraint_sentences(content):
                 add('taboos', title or 'constraint', sentence, [entry['id']])
     return sections
