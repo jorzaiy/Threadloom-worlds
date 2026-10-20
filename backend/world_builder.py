@@ -108,6 +108,14 @@ DUPLICATE_SIMILARITY = 0.6
 TAVILY_API_KEY_ENV = 'TAVILY_API_KEY'
 TAVILY_SEARCH_URL = 'https://api.tavily.com/search'
 TAVILY_MAX_RESULTS = 5
+TAVILY_MAX_QUERIES = 3
+TAVILY_RESULTS_PER_QUERY = 3
+TAVILY_MAX_NOTES = 8
+TAVILY_SNIPPET_LIMIT = 400
+# advanced = 2 credits/query but far fewer game / tourism pages for era queries.
+TAVILY_SEARCH_DEPTH = 'advanced'
+TAVILY_EXCLUDE_DOMAINS = ('tvmao.com', 'taptap.cn', '4399.com', '17173.com', 'gamersky.com', 'ctrip.com', 'mafengwo.cn', 'tripadvisor.com', 'booking.com')
+WORLD_RESEARCH_ROLE = 'world_research'
 
 # Section classifier vocabulary (Chinese + English). Lower-cased match.
 SECTION_KEYWORDS: dict[str, tuple[str, ...]] = {
@@ -230,8 +238,14 @@ Hard rules:
 5. Do not invent named characters (no faction leaders, no named NPCs); this
    is about the world, not plot.
 6. Write in the same language as the CARD facts.
-7. REFERENCE notes (if any) are real-world research for realistic or
-   historical settings; use them for accuracy, but CARD still wins.
+7. REFERENCE notes (if any) are real-world web research, numbered [R1],
+   [R2], ... . In "historical" mode use them for accuracy. In "analog" mode
+   the world is fictional: borrow only texture (price levels and ratios,
+   travel speeds, foods, dress, etiquette), rename nothing after real people,
+   dynasties or places the card does not use, and convert units to the
+   card's own currency and names. CARD still wins over any reference.
+8. When an entry relies on a REFERENCE note, add "refs": ["R1"] listing the
+   note ids it used. Never cite a note you did not use.
 """
 
 
@@ -493,6 +507,17 @@ def _normalize_inferred_entry(raw: Any) -> dict | None:
     region = _compact(raw.get('region', '') or '', REGION_TEXT_LIMIT)
     if region:
         entry['region'] = region
+    refs = raw.get('refs')
+    if isinstance(refs, str):
+        refs = [refs]
+    if isinstance(refs, list):
+        clean = []
+        for ref in refs:
+            ref_id = str(ref or '').strip().strip('[]').upper()
+            if re.fullmatch(r'R\d{1,2}', ref_id) and ref_id not in clean:
+                clean.append(ref_id)
+        if clean:
+            entry['refs'] = clean[:4]
     return entry
 
 
@@ -503,6 +528,7 @@ def inferred_limit(section: str) -> int:
 def merge_world_bible(
     card_sections: dict[str, list[dict]],
     inferred_sections: dict[str, Any] | None,
+    valid_refs: set[str] | None = None,
 ) -> tuple[dict[str, list[dict]], list[dict]]:
     """Merge model output under card entries. Card entries are never altered.
 
@@ -562,6 +588,9 @@ def merge_world_bible(
             }
             if entry.get('region'):
                 item['region'] = entry['region']
+            refs = [ref for ref in entry.get('refs', []) if valid_refs and ref in valid_refs]
+            if refs:
+                item['refs'] = refs
             merged[section].append(item)
             kept += 1
     return merged, dropped
@@ -592,55 +621,228 @@ def _tavily_query(core: dict, card_sections: dict[str, list[dict]]) -> str:
     return _compact(f'daily life, social structure, economy and technology in {base}', 300)
 
 
-def fetch_tavily_research(core: dict, card_sections: dict[str, list[dict]]) -> tuple[list[dict], str]:
-    """Return ``(notes, status)``. Never raises."""
+RESEARCH_PLANNER_SYSTEM = """You plan web research that grounds a roleplay world in real-world detail.
+
+You get a character card summary and the world facts it states. Decide how
+real-world research can help, then write at most 3 web search queries.
+
+Output ONLY a JSON object:
+{"mode": "historical|analog|none",
+ "analog": "the real era/place used as reference, or empty",
+ "era_terms": ["2-4 short words every relevant source must mention, e.g. 宋代, 北宋, Song dynasty"],
+ "queries": [{"q": "search query", "section": "economy_resources|customs|geography|social_system|tech_supernatural_limits", "why": "a few words"}]}
+
+Modes:
+- historical: the card is set in a real era or place (e.g. 1930s Shanghai,
+  Victorian London). Research facts of that era and place.
+- analog: the world is fictional but clearly modelled on a real era (wuxia ->
+  Song/Ming dynasty China; low fantasy -> late medieval Europe; western ->
+  1870s American frontier). Research that real era for texture the card
+  leaves open.
+- none: invented in a way no real era informs (space opera, abstract dream
+  world). Return no queries.
+
+Query rules:
+1. Each query targets ONE concrete gap the card leaves open: everyday prices
+   and wages, inn and travel costs, travel speed by horse/boat/foot, food and
+   dress of ordinary people, etiquette and forms of address, tolls and taxes,
+   how law and policing worked.
+2. Never search for the card, its characters, or its story.
+3. Prefer gaps in economy_resources and customs; skip anything the card
+   already states.
+4. Write queries in the language most likely to find good sources for that
+   era (Chinese eras in Chinese, European eras in English).
+5. Use ONLY real historical terms. Never put the card's invented names
+   (cities, rivers, sects) or genre words (江湖, 武侠, fantasy, RPG) in a
+   query: they pull in games, novels and tourism pages.
+6. Phrase queries like a historian looking for sources: name the era, the
+   concrete thing, and a word such as 史料, 考证, 物价, wages, historical
+   prices, primary sources.
+"""
+
+RESEARCH_SECTIONS = ('economy_resources', 'customs', 'geography', 'social_system', 'tech_supernatural_limits')
+
+
+def _research_planner_prompt(core: dict, card_sections: dict[str, list[dict]]) -> str:
+    core_desc = core.get('coreDescription', {}) if isinstance(core.get('coreDescription'), dict) else {}
+    tags = core.get('tags', []) if isinstance(core.get('tags'), list) else []
+    lines = [
+        f"CARD: {core.get('name', '')}",
+        f"TAGLINE: {_compact(core_desc.get('tagline', ''), 200)}",
+        f"TAGS: {_compact(', '.join(str(tag) for tag in tags), 200)}",
+        f"SUMMARY: {_compact(core_desc.get('summary', ''), 900)}",
+        'WORLD FACTS THE CARD STATES:',
+    ]
+    for section in SECTIONS:
+        entries = card_sections.get(section, [])
+        if entries:
+            lines.append(f'## {section}')
+            for entry in entries[:4]:
+                lines.append(f"- {_compact(entry.get('text', ''), 160)}")
+    return '\n'.join(lines)[:4000]
+
+
+def plan_research_queries(core: dict, card_sections: dict[str, list[dict]]) -> tuple[list[dict], dict]:
+    """Ask Nemotron which real-world facts would ground this world.
+
+    Returns ``(queries, plan)``; ``plan`` carries ``mode``, ``analog``,
+    ``status`` and the model id. Never raises.
+    """
+    plan: dict[str, Any] = {'mode': '', 'analog': '', 'era_terms': [], 'status': ''}
+    if not nebius_api_key_configured():
+        plan['status'] = 'skipped:no_nebius_api_key'
+        return [], plan
+    try:
+        runtime = get_role_runtime(WORLD_RESEARCH_ROLE)
+        if runtime['provider'] != 'llm':
+            plan['status'] = 'skipped:not_llm'
+            return [], plan
+        model_cfg = dict(resolve_provider_model(runtime['model_role']))
+        model_cfg['stream'] = False
+        started = time.monotonic()
+        reply, usage = call_model(model_cfg, RESEARCH_PLANNER_SYSTEM, _research_planner_prompt(core, card_sections))
+        plan['duration_ms'] = int((time.monotonic() - started) * 1000)
+        plan['model'] = str((usage or {}).get('model', '') or model_cfg.get('model', '') or '')
+        payload = parse_json_response(reply)
+        if not isinstance(payload, dict):
+            raise ValueError('planner reply is not a JSON object')
+    except Exception as err:
+        logger.warning('world_builder: research planner failed: %s', err)
+        plan['status'] = f'error:{_compact(f"{type(err).__name__}: {err}", 160)}'
+        return [], plan
+    mode = str(payload.get('mode', '') or '').strip().lower()
+    plan['mode'] = mode if mode in {'historical', 'analog', 'none'} else 'none'
+    plan['analog'] = _compact(payload.get('analog', '') or '', 80)
+    raw_terms = payload.get('era_terms') if isinstance(payload.get('era_terms'), list) else []
+    plan['era_terms'] = [term for term in (_compact(str(t or ''), 24) for t in raw_terms) if term][:4]
+    queries: list[dict] = []
+    seen: set[str] = set()
+    raw_queries = payload.get('queries') if isinstance(payload.get('queries'), list) else []
+    for raw in raw_queries if plan['mode'] != 'none' else []:
+        if isinstance(raw, str):
+            raw = {'q': raw}
+        if not isinstance(raw, dict):
+            continue
+        query = _compact(raw.get('q', '') or raw.get('query', ''), 200)
+        if not query or query.lower() in seen:
+            continue
+        seen.add(query.lower())
+        section = str(raw.get('section', '') or '').strip()
+        queries.append({
+            'query': query,
+            'section': section if section in RESEARCH_SECTIONS else '',
+            'why': _compact(raw.get('why', '') or '', 80),
+        })
+        if len(queries) >= TAVILY_MAX_QUERIES:
+            break
+    plan['status'] = 'ok' if queries else f"ok:no_queries({plan['mode']})"
+    return queries, plan
+
+
+def _tavily_search(api_key: str, query: str, max_results: int) -> list[dict]:
+    try:
+        from .safe_http import safe_request
+    except ImportError:
+        from safe_http import safe_request
+    body = json.dumps({
+        'query': query,
+        'search_depth': TAVILY_SEARCH_DEPTH,
+        'max_results': max_results,
+        'include_answer': False,
+        'exclude_domains': list(TAVILY_EXCLUDE_DOMAINS),
+    }, ensure_ascii=False).encode('utf-8')
+    status, _headers, resp = safe_request(
+        TAVILY_SEARCH_URL,
+        method='POST',
+        headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'},
+        body=body,
+        timeout=20,
+    )
+    if status >= 400:
+        raise RuntimeError(f'http_{status}')
+    data = json.loads(resp.decode('utf-8'))
+    results = data.get('results', []) if isinstance(data, dict) else []
+    return [item for item in results if isinstance(item, dict)]
+
+
+def _note_is_on_topic(item: dict, era_terms: list[str]) -> bool:
+    if not era_terms:
+        return True
+    blob = f"{item.get('title', '')} {item.get('content', '')}".lower()
+    return any(term.lower() in blob for term in era_terms)
+
+
+def fetch_tavily_research(
+    core: dict,
+    card_sections: dict[str, list[dict]],
+    queries: list[dict] | None = None,
+    era_terms: list[str] | None = None,
+) -> tuple[list[dict], str]:
+    """Run Tavily searches and return ``(notes, status)``. Never raises.
+
+    ``queries`` come from :func:`plan_research_queries`. Without a plan, fall
+    back to one generic query for cards that look realistic or historical.
+    Each note gets a stable ``id`` (R1, R2, ...) the world builder cites.
+    """
     api_key = str(os.environ.get(TAVILY_API_KEY_ENV, '') or '').strip()
     if not api_key:
         return [], 'skipped:no_key'
-    if not looks_realistic_or_historical(core, card_sections):
-        return [], 'skipped:fictional_setting'
-    try:
+    if not queries:
+        if not looks_realistic_or_historical(core, card_sections):
+            return [], 'skipped:fictional_setting'
+        queries = [{'query': _tavily_query(core, card_sections), 'section': '', 'why': 'fallback'}]
+        per_query = TAVILY_MAX_RESULTS
+    else:
+        per_query = TAVILY_RESULTS_PER_QUERY
+    notes: list[dict] = []
+    seen_urls: set[str] = set()
+    errors: list[str] = []
+    off_topic = 0
+    for spec in queries[:TAVILY_MAX_QUERIES]:
         try:
-            from .safe_http import safe_request
-        except ImportError:
-            from safe_http import safe_request
-        body = json.dumps({
-            'query': _tavily_query(core, card_sections),
-            'search_depth': 'basic',
-            'max_results': TAVILY_MAX_RESULTS,
-            'include_answer': False,
-        }, ensure_ascii=False).encode('utf-8')
-        status, _headers, resp = safe_request(
-            TAVILY_SEARCH_URL,
-            method='POST',
-            headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'},
-            body=body,
-            timeout=20,
-        )
-        if status >= 400:
-            return [], f'error:http_{status}'
-        data = json.loads(resp.decode('utf-8'))
-        results = data.get('results', []) if isinstance(data, dict) else []
-        notes = []
-        for item in results[:TAVILY_MAX_RESULTS]:
-            if not isinstance(item, dict):
+            results = _tavily_search(api_key, spec['query'], per_query)
+        except Exception as err:  # pragma: no cover - network path
+            logger.warning('world_builder: Tavily lookup failed for %r: %s', spec.get('query'), err)
+            errors.append(str(err) if isinstance(err, RuntimeError) else type(err).__name__)
+            continue
+        for item in results[:per_query]:
+            url = str(item.get('url', '') or '')
+            snippet = _compact(item.get('content', ''), TAVILY_SNIPPET_LIMIT)
+            if not snippet or (url and url in seen_urls):
                 continue
+            if not _note_is_on_topic(item, era_terms or []):
+                off_topic += 1
+                continue
+            seen_urls.add(url)
             notes.append({
+                'id': f'R{len(notes) + 1}',
                 'title': _compact(item.get('title', ''), 120),
-                'url': str(item.get('url', '') or ''),
-                'snippet': _compact(item.get('content', ''), 400),
+                'url': url,
+                'snippet': snippet,
+                'query': spec['query'],
+                'section': spec.get('section', ''),
             })
+            if len(notes) >= TAVILY_MAX_NOTES:
+                break
+        if len(notes) >= TAVILY_MAX_NOTES:
+            break
+    if notes:
         return notes, 'ok'
-    except Exception as err:  # pragma: no cover - network path
-        logger.warning('world_builder: Tavily lookup failed: %s', err)
-        return [], f'error:{type(err).__name__}'
+    if errors:
+        return [], f'error:{errors[0]}'
+    return [], f'ok:no_results(off_topic={off_topic})'
 
 
 # ---------------------------------------------------------------------------
 # LLM (Nemotron Ultra on Nebius Token Factory)
 # ---------------------------------------------------------------------------
 
-def _build_llm_prompt(core: dict, card_sections: dict[str, list[dict]], research: list[dict]) -> str:
+def _build_llm_prompt(
+    core: dict,
+    card_sections: dict[str, list[dict]],
+    research: list[dict],
+    research_plan: dict | None = None,
+) -> str:
     core_desc = core.get('coreDescription', {}) if isinstance(core.get('coreDescription'), dict) else {}
     lines = [
         f"CHARACTER CARD: {core.get('name', '')}",
@@ -658,9 +860,15 @@ def _build_llm_prompt(core: dict, card_sections: dict[str, list[dict]], research
             lines.append(f"- CARD [{title}] {entry.get('text', '')}")
     if research:
         lines.append('')
-        lines.append('REFERENCE (real-world research):')
-        for note in research:
-            lines.append(f"- {note.get('title', '')}: {note.get('snippet', '')}")
+        mode = str(research_plan.get('mode', '') or 'historical') if isinstance(research_plan, dict) else 'historical'
+        analog = str(research_plan.get('analog', '') or '') if isinstance(research_plan, dict) else ''
+        header = f'REFERENCE (real-world web research, mode={mode}'
+        header += f', reference era: {analog})' if analog else ')'
+        lines.append(header + ':')
+        for idx, note in enumerate(research, 1):
+            note_id = note.get('id') or f'R{idx}'
+            target = f" (for {note['section']})" if note.get('section') else ''
+            lines.append(f"- [{note_id}]{target} {note.get('title', '')}: {note.get('snippet', '')}")
     prompt = '\n'.join(lines)
     if len(prompt) > LLM_PROMPT_CHAR_BUDGET:
         prompt = prompt[:LLM_PROMPT_CHAR_BUDGET] + '\n…(truncated)'
@@ -701,9 +909,14 @@ def _call_world_builder_llm(system_prompt: str, user_prompt: str) -> tuple[str, 
     return reply, usage
 
 
-def _infer_with_llm(core: dict, card_sections: dict[str, list[dict]], research: list[dict]) -> tuple[dict, str, dict]:
+def _infer_with_llm(
+    core: dict,
+    card_sections: dict[str, list[dict]],
+    research: list[dict],
+    research_plan: dict | None = None,
+) -> tuple[dict, str, dict]:
     """Return ``(inferred_sections, setting_type, usage)``; raises on failure."""
-    reply, usage = _call_world_builder_llm(WORLD_BUILDER_SYSTEM, _build_llm_prompt(core, card_sections, research))
+    reply, usage = _call_world_builder_llm(WORLD_BUILDER_SYSTEM, _build_llm_prompt(core, card_sections, research, research_plan))
     usage = usage if isinstance(usage, dict) else {}
     if usage.get('finish_reason') == 'length':
         # Reasoning models can spend the whole budget thinking; a truncated
@@ -732,8 +945,16 @@ def build_world_bible(core: dict, lorebook: dict, *, use_llm: bool = True, use_t
     card_sections = extract_card_sections(core, lorebook)
     status: dict[str, str] = {}
     research: list[dict] = []
+    research_plan: dict[str, Any] = {}
+    queries: list[dict] = []
     if use_tavily:
-        research, status['tavily'] = fetch_tavily_research(core, card_sections)
+        if str(os.environ.get(TAVILY_API_KEY_ENV, '') or '').strip():
+            queries, research_plan = plan_research_queries(core, card_sections)
+            status['research_plan'] = research_plan.get('status', '')
+            if research_plan.get('mode') == 'none' and research_plan.get('status', '').startswith('ok'):
+                status['tavily'] = 'skipped:planner_none'
+        if 'tavily' not in status:
+            research, status['tavily'] = fetch_tavily_research(core, card_sections, queries, research_plan.get('era_terms') or [])
     else:
         status['tavily'] = 'skipped:disabled'
 
@@ -748,7 +969,7 @@ def build_world_bible(core: dict, lorebook: dict, *, use_llm: bool = True, use_t
         logger.info('world_builder: NEBIUS_API_KEY not set; writing card-only world bible')
     else:
         try:
-            inferred, setting_type, usage = _infer_with_llm(core, card_sections, research)
+            inferred, setting_type, usage = _infer_with_llm(core, card_sections, research, research_plan)
             model_id = str(usage.get('model', '') or '')
             llm_usage = {
                 key: usage[key]
@@ -761,7 +982,8 @@ def build_world_bible(core: dict, lorebook: dict, *, use_llm: bool = True, use_t
             status['llm'] = f'error:{_compact(f"{type(err).__name__}: {err}", 200)}'
             inferred = {}
 
-    sections, dropped = merge_world_bible(card_sections, inferred)
+    sections, dropped = merge_world_bible(card_sections, inferred, {note['id'] for note in research if note.get('id')})
+    cited = {ref for items in sections.values() for item in items for ref in item.get('refs', [])}
     return {
         'version': WORLD_BIBLE_VERSION,
         'generated_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
@@ -773,7 +995,21 @@ def build_world_bible(core: dict, lorebook: dict, *, use_llm: bool = True, use_t
         'llm_usage': llm_usage,
         'status': status,
         'sections': sections,
-        'research': [{'title': note.get('title', ''), 'url': note.get('url', '')} for note in research],
+        'research': [
+            {
+                'id': note.get('id', ''),
+                'title': note.get('title', ''),
+                'url': note.get('url', ''),
+                'query': note.get('query', ''),
+                'cited': note.get('id', '') in cited,
+            }
+            for note in research
+        ],
+        'research_plan': {
+            key: research_plan[key]
+            for key in ('mode', 'analog', 'era_terms', 'model', 'duration_ms')
+            if research_plan.get(key)
+        } | ({'queries': [q['query'] for q in queries]} if queries else {}),
         'dropped_inferred': dropped,
         'counts': {
             SOURCE_CARD: sum(1 for items in sections.values() for item in items if item.get('source') == SOURCE_CARD),

@@ -129,6 +129,18 @@ NEBIUS_ROLE_MODEL_DEFAULTS = {
         'extra_body': copy.deepcopy(NEMOTRON_NO_THINKING),
     },
 }
+NEBIUS_ROLE_MODEL_DEFAULTS['world_research'] = {
+    'provider': NEBIUS_PROVIDER_NAME,
+    # One planning call per world-bible build: pick the real-world reference
+    # era and up to 3 Tavily queries. Super, no reasoning trace.
+    'model': NEMOTRON_SUPER_MODEL,
+    'temperature': 0.2,
+    'max_output_tokens': 600,
+    'stream': False,
+    'response_format': {'type': 'json_object'},
+    'timeout_seconds': 30,
+    'extra_body': copy.deepcopy(NEMOTRON_NO_THINKING),
+}
 STATE_KEEPER_CANDIDATE_DEFAULT = {
     'provider': SITE_PROVIDER_NAME,
     'model': '',
@@ -169,6 +181,10 @@ SYSTEM_ROLE_DEFAULTS = {
     'world_check': {
         'provider': 'llm',
         'model_role': 'world_check',
+    },
+    'world_research': {
+        'provider': 'llm',
+        'model_role': 'world_research',
     },
 }
 SYSTEM_MODEL_DEFAULTS = {

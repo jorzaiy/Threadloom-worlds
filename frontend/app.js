@@ -2262,6 +2262,13 @@ function renderWorldBible() {
       const parts = [`${counts.card || 0} from card`, `${counts.inferred || 0} by Nemotron`];
       if (counts.user) parts.push(`${counts.user} by you`);
       if (bible.setting_type) parts.push(bible.setting_type);
+      const refs = Array.isArray(bible.research) ? bible.research : [];
+      if (refs.length) {
+        const cited = refs.filter(note => note.cited).length;
+        const mode = bible.research_plan?.mode === 'analog' && bible.research_plan?.analog
+          ? ` (ref: ${bible.research_plan.analog})` : '';
+        parts.push(`${cited}/${refs.length} web sources via Tavily${mode}`);
+      }
       worldBibleMeta.textContent = parts.join(' · ');
     }
   }
@@ -2312,6 +2319,17 @@ function buildWorldEntry(entry, { focus = false } = {}) {
     row.appendChild(tag);
     const text = worldEl('span', 'world-entry-text', entry.text || '');
     if (entry.region) text.prepend(worldEl('span', 'world-region', entry.region));
+    const notes = Array.isArray(worldBible?.research) ? worldBible.research : [];
+    for (const refId of (Array.isArray(entry.refs) ? entry.refs : [])) {
+      const note = notes.find(item => item.id === refId);
+      if (!note || !/^https?:\/\//.test(note.url || '')) continue;
+      const link = worldEl('a', 'world-ref', refId);
+      link.href = note.url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.title = note.title || note.url;
+      text.appendChild(link);
+    }
     row.appendChild(text);
   }
   return row;

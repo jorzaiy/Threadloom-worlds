@@ -3118,6 +3118,8 @@ input:checked + .toggle-slider:before {
 .world-entries { display: grid; gap: 0.35rem; padding: 0 0.7rem 0.6rem; }
 .world-entry { display: grid; grid-template-columns: auto 1fr auto; gap: 0.5rem; align-items: start; font-size: 0.85rem; line-height: 1.45; }
 .world-entry-text { grid-column: 2 / 4; color: var(--text); overflow-wrap: anywhere; }
+.world-ref { display: inline-block; margin-left: 0.3rem; padding: 0 0.3rem; font-size: 0.7rem; line-height: 1.4; vertical-align: super; border-radius: 4px; background: var(--surface-high); color: var(--text-muted, inherit); text-decoration: none; }
+.world-ref:hover { text-decoration: underline; }
 .world-source {
   font-size: 0.68rem; padding: 0.08rem 0.4rem; border-radius: 999px; white-space: nowrap; margin-top: 0.12rem;
   border: 1px solid var(--border); color: var(--text-muted); background: var(--surface-high);

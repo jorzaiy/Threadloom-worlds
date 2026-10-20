@@ -572,3 +572,137 @@ def test_user_edit_can_set_and_clear_region(tmp_path):
         {'customs': [{'id': entry['id'], 'text': entry['text'], 'region': ''}]}, source_root=tmp_path,
     )
     assert 'region' not in saved['sections']['customs'][0]
+
+
+# ---------------------------------------------------------------------------
+# Tavily research planner (Nemotron picks queries, notes are cited by id)
+# ---------------------------------------------------------------------------
+
+WUXIA_CORE = {
+    'name': '血河渡',
+    'coreDescription': {'tagline': '武侠江湖', 'summary': '北方燕云十六郡与岭南七十二峰之间的江湖恩怨。'},
+    'tags': ['武侠'],
+}
+
+
+def _planner_env(monkeypatch, reply):
+    monkeypatch.setenv('TAVILY_API_KEY', 'tvly-test')
+    monkeypatch.setattr(wb, 'nebius_api_key_configured', lambda: True)
+    monkeypatch.setattr(wb, 'get_role_runtime', lambda role: {'provider': 'llm', 'model_role': role})
+    monkeypatch.setattr(wb, 'resolve_provider_model', lambda role: {'model': f'mock-{role}'})
+    calls = []
+
+    def _fake_call_model(config, system, user):
+        calls.append((config.get('model'), system))
+        return json.dumps(reply, ensure_ascii=False), {'model': config.get('model')}
+
+    monkeypatch.setattr(wb, 'call_model', _fake_call_model)
+    return calls
+
+
+def test_planner_returns_capped_deduped_queries(monkeypatch):
+    calls = _planner_env(monkeypatch, {
+        'mode': 'analog',
+        'analog': '北宋',
+        'queries': [
+            {'q': '北宋 客栈 住宿 价格', 'section': 'economy_resources', 'why': '物价'},
+            {'q': '北宋 客栈 住宿 价格', 'section': 'economy_resources'},
+            '宋代 驿站 马匹 日行',
+            {'q': '宋代 市井 饮食 服饰', 'section': 'bogus'},
+            {'q': '多余的第四条'},
+        ],
+    })
+    queries, plan = wb.plan_research_queries(WUXIA_CORE, wb.empty_sections())
+    assert [q['query'] for q in queries] == ['北宋 客栈 住宿 价格', '宋代 驿站 马匹 日行', '宋代 市井 饮食 服饰']
+    assert queries[0]['section'] == 'economy_resources'
+    assert queries[2]['section'] == ''
+    assert plan['mode'] == 'analog' and plan['analog'] == '北宋' and plan['status'] == 'ok'
+    assert calls[0][0] == 'mock-world_research'
+
+
+def test_planner_none_mode_yields_no_queries(monkeypatch):
+    _planner_env(monkeypatch, {'mode': 'none', 'queries': [{'q': 'should be ignored'}]})
+    queries, plan = wb.plan_research_queries(WUXIA_CORE, wb.empty_sections())
+    assert queries == [] and plan['mode'] == 'none'
+
+
+def test_planner_failure_is_soft(monkeypatch):
+    monkeypatch.setattr(wb, 'nebius_api_key_configured', lambda: True)
+    monkeypatch.setattr(wb, 'get_role_runtime', lambda role: {'provider': 'llm', 'model_role': role})
+    monkeypatch.setattr(wb, 'resolve_provider_model', lambda role: {'model': 'x'})
+    monkeypatch.setattr(wb, 'call_model', lambda *a: ('not json at all', {}))
+    queries, plan = wb.plan_research_queries(WUXIA_CORE, wb.empty_sections())
+    assert queries == [] and plan['status'].startswith('error:')
+
+
+def test_fetch_runs_each_planned_query_and_numbers_notes(monkeypatch):
+    import safe_http
+
+    monkeypatch.setenv('TAVILY_API_KEY', 'tvly-test')
+    seen = []
+
+    def _fake_request(url, *, method='GET', headers=None, body=None, timeout=20.0):
+        query = json.loads(body)['query']
+        seen.append((query, json.loads(body)['max_results']))
+        results = [
+            {'title': f'{query} A', 'url': f'https://ex.org/{len(seen)}a', 'content': '一碗面三文钱。'},
+            {'title': 'dup', 'url': 'https://ex.org/1a', 'content': 'duplicate url'},
+        ]
+        return 200, {}, json.dumps({'results': results}, ensure_ascii=False).encode('utf-8')
+
+    monkeypatch.setattr(safe_http, 'safe_request', _fake_request)
+    queries = [{'query': 'q1', 'section': 'economy_resources'}, {'query': 'q2', 'section': 'customs'}]
+    notes, status = wb.fetch_tavily_research(WUXIA_CORE, wb.empty_sections(), queries)
+    assert status == 'ok'
+    assert seen == [('q1', wb.TAVILY_RESULTS_PER_QUERY), ('q2', wb.TAVILY_RESULTS_PER_QUERY)]
+    assert [n['id'] for n in notes] == ['R1', 'R2']
+    assert notes[1]['section'] == 'customs' and notes[1]['query'] == 'q2'
+
+
+def test_build_cites_refs_and_drops_unknown_ones(monkeypatch, nebius_key):
+    monkeypatch.setenv('TAVILY_API_KEY', 'tvly-test')
+    monkeypatch.setattr(wb, 'plan_research_queries', lambda core, sections: (
+        [{'query': '北宋 物价', 'section': 'economy_resources', 'why': ''}],
+        {'mode': 'analog', 'analog': '北宋', 'status': 'ok', 'model': 'mock-super'},
+    ))
+    notes = [{'id': 'R1', 'title': '宋代物价', 'url': 'https://ex.org/song', 'snippet': '一斗米约百文。', 'query': '北宋 物价', 'section': 'economy_resources'}]
+    monkeypatch.setattr(wb, 'fetch_tavily_research', lambda core, sections, queries=None, era_terms=None: (notes, 'ok'))
+    prompts = {}
+
+    def _llm(system, user):
+        prompts['user'] = user
+        prompts['system'] = system
+        return json.dumps({'setting_type': 'wuxia', 'sections': {
+            'economy_resources': [
+                {'title': '米价', 'text': '幽州一斗米约九十文，荒年翻倍。', 'refs': ['R1', 'R9']},
+                {'title': '面价', 'text': '路边一碗汤面五文。', 'refs': 'r1'},
+                {'title': '刀价', 'text': '寻常腰刀一贯二百文。'},
+            ],
+        }}, ensure_ascii=False), {'model': 'mock-ultra'}
+
+    monkeypatch.setattr(wb, '_call_world_builder_llm', _llm)
+    bible = wb.build_world_bible(WUXIA_CORE, {'entries': []})
+    assert '[R1] (for economy_resources) 宋代物价' in prompts['user']
+    assert 'mode=analog, reference era: 北宋' in prompts['user']
+    assert 'refs' in prompts['system']
+    econ = {item['title']: item for item in bible['sections']['economy_resources']}
+    assert econ['米价']['refs'] == ['R1']
+    assert econ['面价']['refs'] == ['R1']
+    assert 'refs' not in econ['刀价']
+    assert bible['research'] == [{'id': 'R1', 'title': '宋代物价', 'url': 'https://ex.org/song', 'query': '北宋 物价', 'cited': True}]
+    assert bible['research_plan'] == {'mode': 'analog', 'analog': '北宋', 'model': 'mock-super', 'queries': ['北宋 物价']}
+    assert bible['status']['tavily'] == 'ok'
+
+
+def test_build_skips_tavily_when_planner_says_none(monkeypatch, nebius_key):
+    monkeypatch.setenv('TAVILY_API_KEY', 'tvly-test')
+    monkeypatch.setattr(wb, 'plan_research_queries', lambda core, sections: ([], {'mode': 'none', 'status': 'ok:no_queries(none)'}))
+
+    def _no_fetch(*a, **k):
+        raise AssertionError('Tavily must not be called')
+
+    monkeypatch.setattr(wb, 'fetch_tavily_research', _no_fetch)
+    monkeypatch.setattr(wb, '_call_world_builder_llm', lambda s, u: (json.dumps({'sections': {}}), {}))
+    bible = wb.build_world_bible(WUXIA_CORE, {'entries': []})
+    assert bible['status']['tavily'] == 'skipped:planner_none'
+    assert bible['research'] == []
