@@ -2319,6 +2319,7 @@ function buildWorldEntry(entry, { focus = false } = {}) {
     row.appendChild(tag);
     const text = worldEl('span', 'world-entry-text', entry.text || '');
     if (entry.region) text.prepend(worldEl('span', 'world-region', entry.region));
+    else if (entry.source === 'card' && entry.title) text.prepend(worldEl('span', 'world-region', entry.title));
     const notes = Array.isArray(worldBible?.research) ? worldBible.research : [];
     for (const refId of (Array.isArray(entry.refs) ? entry.refs : [])) {
       const note = notes.find(item => item.id === refId);

@@ -706,3 +706,23 @@ def test_build_skips_tavily_when_planner_says_none(monkeypatch, nebius_key):
     bible = wb.build_world_bible(WUXIA_CORE, {'entries': []})
     assert bible['status']['tavily'] == 'skipped:planner_none'
     assert bible['research'] == []
+
+
+def test_taboos_only_explicit_prohibitions_with_context():
+    content = (
+        '北境:是大胤绝不可失的北方门户.\n'
+        '外在: 血雾(无法完全控制的力量)环绕.\n'
+        '核心业务:专精于挖掘见不得光的秘密.\n'
+        '[系统指令:地理锁定]\n'
+        '绮音阁、金鳞池均为神都独有的地标.\n'
+        '严禁将它们出现在江南、西域等其他地区.\n'
+        '天策府:\n'
+        '本质:正道组织.严禁帮众欺压良善.\n'
+        '梦蝶(艺名)\n'
+        '逻辑锁:外界仅知艺名"梦蝶".公共场合严禁提及真名.\n'
+    )
+    got = wb._constraint_sentences(content, limit=5)
+    assert got == [
+        '绮音阁、金鳞池均为神都独有的地标. 严禁将它们出现在江南、西域等其他地区.',
+        '天策府：严禁帮众欺压良善.',
+    ]

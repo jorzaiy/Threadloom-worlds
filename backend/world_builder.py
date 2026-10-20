@@ -375,15 +375,57 @@ def classify_section(title: str, content: str, entry_type: str = '') -> str | No
     return best if scores[best] > 0 else None
 
 
+# Only explicit prohibitions become taboos; descriptive negation ("不可失",
+# "无法完全控制", "不是无所不能") stays in its own section.
+PROHIBITION_MARKERS_ZH = ('严禁', '禁止', '不允许', '不准', '切勿', '绝不能', '不存在', '并不存在')
+# 不得 as a verb ("不得入内"), not inside 见不得/舍不得/巴不得/免不得/少不得/怪不得/由不得/顾不得.
+BUDE_RE = re.compile(r'(?<![见舍巴免少怪由顾记恨])不得(?!了|不)')
+PROHIBITION_MARKERS_EN = ('must not', 'must never', 'forbidden', 'prohibited', 'is banned', 'are banned')
+# Character-level secrets / knowledge locks are NPC canon, not world rules.
+NPC_SECRET_MARKERS = ('逻辑锁', '真名', '绝密', '{{user}}', '{{char}}', '触发:', '触发：', '解锁')
+GENERIC_HEADINGS = {'代表人物', '核心业务', '据点', '定位', '本质', '身份', '外貌', '性格', '形象', '能力', '武器', '秘密', '背景', '势力', '组织', '规则', '注意'}
+LEADING_PRONOUNS = ('它们', '他们', '她们', '此', '该', '这些', '其', 'they ', 'these ', 'it ')
+
+
+def _is_prohibition(text: str) -> bool:
+    lower = str(text or '').lower()
+    return (any(m in lower for m in PROHIBITION_MARKERS_ZH) or BUDE_RE.search(lower) is not None
+            or any(m in lower for m in PROHIBITION_MARKERS_EN))
+
+
 def _constraint_sentences(text: str, limit: int = 3) -> list[str]:
-    parts = re.split(r'(?<=[。！？!?；;\n])|(?<=\.)\s+', str(text or ''))
-    out = []
-    for part in parts:
-        sentence = part.strip()
-        if 4 <= len(sentence) <= 200 and _has_negation(sentence):
+    """Explicit prohibitions from a lorebook entry, with enough context to stand alone."""
+    lines = [line.strip() for line in str(text or '').splitlines()]
+    out: list[str] = []
+    prev = ''
+    heading = ''
+    for line in lines:
+        if not line:
+            continue
+        head = re.fullmatch(r'[-*#\s]*([^:：\s][^:：]{0,11})[:：]', line)
+        if head:
+            name = head.group(1).strip()
+            if name not in GENERIC_HEADINGS:
+                heading = name
+        if any(m in line for m in NPC_SECRET_MARKERS):
+            prev = line
+            continue
+        for part in re.split(r'(?<=[。！？!?；;])|(?<=\.)\s*', line):
+            sentence = part.strip()
+            if not (4 <= len(sentence) <= 200 and _is_prohibition(sentence)):
+                continue
+            # "严禁将它们出现在…" means nothing alone: carry the line before it.
+            body = re.sub(r'^(严禁|禁止|不得|切勿|不准)(将|把|让)?', '', sentence)
+            if prev and body.lower().startswith(LEADING_PRONOUNS) and len(prev) + len(sentence) <= 220:
+                sentence = f'{prev} {sentence}'
+            sentence = re.sub(r'^\[[^\]]{1,20}\]\s*', '', sentence)
+            # Name the faction/place it belongs to ("天策府：严禁帮众欺压良善").
+            if heading and heading not in sentence:
+                sentence = f'{heading}：{sentence}'
             out.append(sentence)
-        if len(out) >= limit:
-            break
+            if len(out) >= limit:
+                return out
+        prev = line
     return out
 
 
