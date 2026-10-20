@@ -450,7 +450,9 @@ def extract_card_sections(core: dict, lorebook: dict) -> dict[str, list[dict]]:
 
     core_desc = core.get('coreDescription', {}) if isinstance(core.get('coreDescription'), dict) else {}
     scenario = str(core_desc.get('tagline', '') or '').strip()
-    if scenario:
+    # Taglines often carry author instructions ("[Scene Rules: ... NOT 玩家]"), not world facts.
+    if scenario and not _is_meta_entry({'title': '', 'content': scenario}) and not re.search(
+            r'\[\s*(scene rules|rules|system|指令|规则)', scenario, re.I):
         add('era_feel', 'Scenario', scenario, ['card:scenario'])
 
     for entry in _enabled_lorebook_entries(lorebook):

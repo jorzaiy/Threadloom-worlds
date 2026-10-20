@@ -726,3 +726,9 @@ def test_taboos_only_explicit_prohibitions_with_context():
         '绮音阁、金鳞池均为神都独有的地标. 严禁将它们出现在江南、西域等其他地区.',
         '天策府：严禁帮众欺压良善.',
     ]
+
+
+def test_instruction_tagline_is_not_era_feel():
+    core = {'coreDescription': {'tagline': '[Scene Rules: 1. 神偷 - IS a random 土著NPC. NOT 玩家/异人]'}}
+    sections = wb.extract_card_sections(core, {'entries': []})
+    assert sections['era_feel'] == []
