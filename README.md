@@ -1,66 +1,67 @@
-# Threadloom
+# Threadloom Worlds
 
-当前版本：1.2
+**A long-form role-play runtime that builds a world bible from any character card and keeps the story inside that world, powered by NVIDIA Nemotron on Nebius Token Factory and Tavily.**
 
-Threadloom 是一个面向长期角色扮演的 runtime-first Web 应用，支持本地自托管与可选多用户部署。
+[中文说明](README.zh-CN.md) · License: MIT · Live demo: _see the Devpost page_
 
-它以 `canon`、`state`、`persona`、`threads`、recent window 和 keeper archive 作为多层事实面，而非把聊天记录当成唯一真相源。前端负责消息收发、会话切换与状态展示；后端负责上下文装配、裁定、叙事生成与事实写回。
+## The problem
 
-## 功能
+Character cards for AI role-play carry a whole world: places, factions, history, laws. Chat models forget it within a few dozen turns. The cafe appears in a desert town, a forbidden act goes unpunished, a medieval guard pulls out a phone. Players call this "drift".
 
-- **沉浸式 Web UI**：聊天界面、设置抽屉、状态面板、会话切换、角色卡管理
-- **多 session**：新游戏、切换、删除、单轮重新生成
-- **Runtime 主链**：narrator / state keeper / arbiter / selector / actor registry
-- **分层记忆**：session-local state、summary、persona、threads、keeper archive
-- **角色卡导入**：从角色卡生成 `character-data.json`、`lorebook.json`、`openings.json`、`system-npcs.json` 及资产清单
-- **可选多用户**：管理员启用、用户隔离、Bearer token 认证、登录限速、用户禁用与归档
-- **安全边界**：默认仅监听 loopback；公网部署需通过可信反向代理
+## What Threadloom Worlds does
 
-## 环境要求
+1. **World Builder** – when a card is imported, every setting the card states is extracted into a structured **world bible** (geography, factions, social system, tech/supernatural limits, economy, customs, taboos, era & feel). Long lore entries are split, never truncated; character personas and author instructions are filtered out. Nemotron Ultra then fills only the gaps, tagged `inferred`, and an inferred entry can never override the card.
+2. **Grounded research (Tavily)** – a Nemotron planner decides whether the setting is *historical*, *analog* (e.g. a wuxia world that feels Song/Ming) or *pure fantasy*. For the first two it writes historian-style queries, runs Tavily advanced search, and the builder cites sources `R1..R8` on each inferred entry. Fantasy cards skip the search.
+3. **World Skeleton** – a compact, location-aware slice of the bible (world-wide rules plus entries for the current region) is injected into every narrator prompt, so the base layout of the world never falls out of context.
+4. **World Check** – every player turn, Nemotron Super classifies the action as *allowed*, *allowed with a cost*, or *out of world*, names the rule that fired, and hands the narrator a concrete hint. The UI shows the verdict on each reply.
+5. **Editable canon** – players can view, edit, lock or rebuild the bible. Locked entries are canon for both the narrator and World Check.
 
-- Python 3.11+
-- 依赖已列于 `requirements.txt`，通过 `pip install -r requirements.txt` 安装
+## How NVIDIA Nemotron and Nebius Token Factory are used
 
-## 快速启动
+All model calls go through Nebius Token Factory's OpenAI-compatible API (`https://api.tokenfactory.nebius.com/v1/`, key from `NEBIUS_API_KEY`), provider `nebius-token-factory` in `backend/model_config.py`.
+
+| Role | Model | Where |
+|---|---|---|
+| World Builder (bible inference) | `nvidia/Nemotron-3-Ultra-550b-a55b` | `backend/world_builder.py` |
+| Research planner (no-think) | Nemotron Super 120B | `backend/world_builder.py` |
+| World Check (per turn) | Nemotron Super 120B | `backend/world_check.py` |
+| Narrator / summarizer in the demo | Nemotron Super 120B | `deploy/seed_demo.py` |
+
+A full bible build costs about $0.01–0.02; a World Check is a fraction of a cent.
+
+## How Tavily is used
+
+`backend/world_builder.py` calls the Tavily Search API at runtime (`TAVILY_API_KEY`, advanced depth, era-term and domain filtering) during bible builds for historical or analog settings. Results become numbered notes `R1..R8`, and the UI links each bible entry to the sources it cites.
+
+## Run it
 
 ```bash
-cp .env.local.example .env.local
-# 编辑 .env.local，填入 API key
-cd backend
-./start.sh
+pip install -r requirements.txt
+export NEBIUS_API_KEY=...        # Nebius Token Factory
+export TAVILY_API_KEY=...        # optional, enables grounded research
+cd backend && ./start.sh          # http://127.0.0.1:8765
 ```
 
-默认监听地址：
+Import a card from **Settings → 导入资产**, or use the bundled demo card `examples/demo-cards/emberwell-crossing.json`. The **总结面板 → World** section shows the bible and the last World Check.
 
+### Deploy (Render, free tier)
+
+`render.yaml` is a Blueprint: Docker build from `deploy/huggingface/Dockerfile`, seeds the demo card on start. Set `NEBIUS_API_KEY`, `TAVILY_API_KEY` and `THREADLOOM_ADMIN_PASSWORD` in the dashboard.
+
+### Tests
+
+```bash
+env -u NEBIUS_API_KEY -u TAVILY_API_KEY python -m pytest -q tests
 ```
-http://127.0.0.1:8765
-```
 
-详细启动、配置、角色卡导入与部署说明见 [Operations](doc/OPERATIONS.md)。
+## What was built during the hackathon
 
-## 文档
+Threadloom (the base RP runtime: memory layers, state keeper, multi-session UI) existed before the hackathon. Everything below is new in this repo, on top of the base commit `b39b3f6`:
 
-| 文档 | 内容 |
-|------|------|
-| [Architecture](doc/ARCHITECTURE.md) | 产品边界、整体结构、角色卡与 session 隔离、narrator 分层 |
-| [Runtime Flow](doc/RUNTIME.md) | 单轮消息的完整 runtime 流程、刷新策略、keeper/writeback 行为 |
-| [Backend](doc/BACKEND.md) | 后端模块说明、配置边界、多用户安全边界、开发环境配置 |
-| [API](doc/API.md) | HTTP API 端点与多用户认证约定 |
-| [Operations](doc/OPERATIONS.md) | 启动、角色卡导入、多用户操作、公网部署检查清单 |
-| [Context Flow](doc/CONTEXT-FLOW.md) | 上下文装配与 prompt 流向 |
-| [Review](doc/REVIEW.md) | 当前审查记录与质量边界 |
-| [Narrative Graph / CodeGraph](doc/NARRATIVE-GRAPH-CODEGRAPH.md) | `codegraph` 相关性分析与 Threadloom 叙事图实施方案 |
-
-## 数据与配置
-
-以下路径存放运行时数据与本地配置，不纳入版本控制（已在 `.gitignore` 中排除）：
-
-```
-runtime-data/
-character/
-memory/
-runtime/
-config/runtime.json
-config/providers.json
-.env.local
-```
+- Nebius Token Factory provider and Nemotron role routing
+- World Builder, card lore extraction and the world bible format
+- Tavily research planner and cited sources
+- World Skeleton injection into the narrator
+- Per-turn World Check and its UI
+- World bible view / edit / lock / rebuild API and panel
+- Render deployment kit and demo seeding
