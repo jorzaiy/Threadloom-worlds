@@ -2,7 +2,7 @@
 
 **A long-form role-play runtime that builds a world bible from any character card and keeps the story inside that world, powered by NVIDIA Nemotron on Nebius Token Factory and Tavily.**
 
-[中文说明](README.zh-CN.md) · License: MIT · Live demo: _see the Devpost page_
+[中文说明](README.zh-CN.md) · License: MIT · Live demo: https://threadloom-worlds.onrender.com/ (free tier, first load may take ~1 min to wake)
 
 ## The problem
 
